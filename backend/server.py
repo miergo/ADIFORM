@@ -71,6 +71,15 @@ def stop():
     return session.summary()
 
 
+@app.post("/api/go")
+def go():
+    """Arm the game after hold-at-top calibration (phase ready → active)."""
+    ok, err = session.arm()
+    if not ok:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    return {"ok": True, "phase": "active"}
+
+
 @app.get("/api/recording")
 def recording():
     path = session.playback_path()

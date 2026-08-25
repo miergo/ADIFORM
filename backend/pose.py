@@ -18,6 +18,8 @@ HOW TO ADD A NEW FEATURE (when you do not have AI)
 Session / video I/O lives in session.py — you usually only edit this file.
 """
 
+import time
+
 import cv2
 import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi
@@ -58,9 +60,9 @@ UP_ELBOW = 145.0  # degrees; "arms locked out" at the top
 DOWN_TOUCH_PX = 25.0  # eye within this many pixels of ankle height = down
 MIN_Y1_PX = 40.0  # minimum length for the y1 guide line
 
-# --- Ankle y=0 calibration ---
-ANKLE_CALIB_FRAMES = 10  # collect this many frames, then freeze ankle
-ANKLE_CALIB_LOCK_FRAMES = 15  # only average the last N (skip settling)
+# --- Hold-at-top calibration (y0 + y1) ---
+CALIB_ELBOW_MIN = 150.0  # degrees; fully extended for calib hold
+HOLD_CALIB_POSE_TIME = 2.0  # seconds to hold before locking guides
 
 # --- Posture overlay ---
 CONF_MIN = 0.4  # ignore joints below this confidence
@@ -84,6 +86,8 @@ IDLE_METRICS = {
     "touch_y1": None,
     "posture_angle": None,
     "posture_status": None,
+    "phase": "idle",
+    "calib_progress": 0.0,
 }
 
 
@@ -221,32 +225,54 @@ def eye_height_above_ankle(eye, ankle):
 
 
 # =============================================================================
-# ANKLE CALIBRATION + REP COUNTING
+# CALIBRATION + REP COUNTING
 #
 # Rules:
-#   - Freeze ankle once → stable red y=0 line
-#   - stage "down" when eye near that line
-#   - after down, elbow >= UP_ELBOW → +1 rep, stage "up"
-#   - y1 (upper red line) locks on the FIRST unlock only
+#   - Hold top pose (elbow >= CALIB_ELBOW_MIN) for HOLD_CALIB_POSE_TIME
+#   - Freeze ankle_origin (y0) + y1 from hold samples → phase "ready"
+#   - stage "down" when eye near y=0; after down, elbow >= UP_ELBOW → +1 rep
+#   - Rep counting only when phase == "active" (armed via POST /api/go)
 # =============================================================================
 
 
-def calibrate_ankle(tracker, ankle):
-    """Freeze ankle_origin for a stable y=0. Does not set y1."""
-    if tracker["ankle_origin"] is not None or ankle is None:
-        return tracker["ankle_origin"]
+def update_calibrate_ankle(tracker, ankle, h, elbow):
+    """3s hold-at-top calibration. Locks ankle_origin + y1, then phase=ready."""
+    if tracker["side"] is not None and tracker["phase"] == "detecting":
+        tracker["phase"] = "calibrating"
+        tracker["calib_progress"] = 0.0
+        return
 
-    tracker["ankle_samples"].append(np.asarray(ankle[:2], dtype=np.float64).copy())
-    if len(tracker["ankle_samples"]) < ANKLE_CALIB_FRAMES:
-        return None
+    if tracker["phase"] != "calibrating":
+        return
 
-    ankle_tail = tracker["ankle_samples"][-ANKLE_CALIB_LOCK_FRAMES:]
-    tracker["ankle_origin"] = np.median(ankle_tail, axis=0)
-    return tracker["ankle_origin"]
+    if ankle is None or h is None or elbow is None or elbow < CALIB_ELBOW_MIN:
+        tracker["calib_ankle_samples"] = []
+        tracker["calib_h_samples"] = []
+        tracker["calib_hold_start"] = None
+        tracker["calib_progress"] = 0.0
+        return
+
+    now = time.time()
+    if tracker["calib_hold_start"] is None:
+        tracker["calib_hold_start"] = now
+
+    tracker["calib_ankle_samples"].append(
+        np.asarray(ankle[:2], dtype=np.float64).copy()
+    )
+    tracker["calib_h_samples"].append(float(h))
+
+    elapsed = now - tracker["calib_hold_start"]
+    tracker["calib_progress"] = min(1.0, elapsed / HOLD_CALIB_POSE_TIME)
+
+    if elapsed >= HOLD_CALIB_POSE_TIME:
+        tracker["ankle_origin"] = np.median(tracker["calib_ankle_samples"], axis=0)
+        tracker["y1"] = max(float(np.median(tracker["calib_h_samples"])), MIN_Y1_PX)
+        tracker["phase"] = "ready"
+        tracker["calib_progress"] = 1.0
 
 
 def update_rep_count(h, elbow, tracker):
-    """Update stage / reps / y1 from eye height h and elbow angle."""
+    """Update stage / reps from eye height h and elbow angle. Does not set y1."""
     if h is None:
         return
 
@@ -257,8 +283,6 @@ def update_rep_count(h, elbow, tracker):
 
     # Coming up from a down: arms lock out → count one rep
     if tracker["stage"] == "down" and elbow is not None and elbow >= UP_ELBOW:
-        if tracker["y1"] is None:
-            tracker["y1"] = max(float(h), MIN_Y1_PX)
         tracker["reps"] += 1
         tracker["stage"] = "up"
 
@@ -491,10 +515,14 @@ def init_tracker(fps=None):
         # Reps
         "stage": "-",  # "-", "down", or "up"
         "reps": 0,
-        "y1": None,  # locked after first successful up
-        # Ankle calibration
-        "ankle_origin": None,
-        "ankle_samples": [],
+        # Calibration / game phases
+        "ankle_origin": None,  # frozen y=0
+        "y1": None,  # frozen at end of hold-at-top calib
+        "phase": "detecting",  # detecting | calibrating | ready | active
+        "calib_progress": 0.0,
+        "calib_hold_start": None,
+        "calib_ankle_samples": [],
+        "calib_h_samples": [],
         # Overlays / UI
         "eye_height": None,
         "speed": None,  # m/s
@@ -519,6 +547,8 @@ def metrics_from_tracker(tracker, status, elbow=None):
         "touch_y1": tracker.get("touch_y1") or None,
         "posture_angle": tracker.get("posture_angle"),
         "posture_status": tracker.get("posture_status"),
+        "phase": tracker.get("phase"),
+        "calib_progress": round(float(tracker.get("calib_progress") or 0.0), 2),
     }
 
 
@@ -553,13 +583,10 @@ def analyze_frame(frame, kpts, tracker):
     # --- 3) Elbow angle (used for "up" / unlock) ---
     elbow = joint_angle(kpts[arm[0]], kpts[arm[1]], kpts[arm[2]])
 
-    # --- 4) Eye height, ankle y=0, rep count ---
+    # --- 4) Eye height, hold-at-top calib (y0+y1), rep count ---
     eye = eye_point(kpts)
     if eye is not None and kpts[i_ank][2] >= CONF_MIN:
         ankle_live = kpts[i_ank][:2]
-        if tracker["ankle_origin"] is None:
-            calibrate_ankle(tracker, ankle_live)
-
         ankle_ref = (
             tracker["ankle_origin"]
             if tracker["ankle_origin"] is not None
@@ -567,13 +594,23 @@ def analyze_frame(frame, kpts, tracker):
         )
         h = eye_height_above_ankle(eye, ankle_ref)
 
+        # During calib, h is measured against live ankle until origin freezes
+        update_calibrate_ankle(tracker, ankle_live, h, elbow)
+
+        # Refresh ref/h if calib just locked ankle_origin this frame
         if tracker["ankle_origin"] is not None:
+            ankle_ref = tracker["ankle_origin"]
+            h = eye_height_above_ankle(eye, ankle_ref)
+
+        if tracker["phase"] in (
+            "ready",
+            "active",
+        ):  ##NOTE: THIS WIL CHANGE TO ACTIVE WHEN ui IS READY
             update_rep_count(h, elbow, tracker)
 
         if h is not None:
             tracker["touch_y0"] = h <= DOWN_TOUCH_PX
-
-        else:  # This is a fallback to ensure the touch_y0 is a boolean
+        else:
             tracker["touch_y0"] = False
 
         y1 = tracker["y1"]
@@ -581,10 +618,10 @@ def analyze_frame(frame, kpts, tracker):
         if y1 is not None and y1 > 1e-6:
             tracker["eye_height"] = round(h / y1, 2)
             tracker["touch_y1"] = h >= y1
-
         else:
             tracker["eye_height"] = round(h, 1)
             tracker["touch_y1"] = False
+
         # --- 5a) Scale, speed (m/s), y0→eye vector + velocity arrow ---
         update_meters_per_px(kpts, chain, tracker)
         speed = update_eye_speed(h, tracker)
@@ -598,18 +635,20 @@ def analyze_frame(frame, kpts, tracker):
         )
         draw_eye_speed(frame, eye, ankle_ref, speed)
     else:
+        # Lost person / ankle → hard-reset hold if still calibrating
+        update_calibrate_ankle(tracker, None, None, elbow)
         tracker["eye_height"] = None
         update_eye_speed(None, tracker)
 
     # --- 5b) Draw arm + posture ---
     draw_arm(frame, kpts, arm, elbow)
     status = draw_posture(frame, kpts, chain, tracker)
-    if (
-        tracker["ankle_origin"] is None
-        and eye is not None
-        and kpts[i_ank][2] >= CONF_MIN
-    ):
-        status = "calibrating ankle..."
+    if tracker["phase"] == "calibrating":
+        status = f"calibrating... {int(tracker['calib_progress'] * 100)}%"
+    elif tracker["phase"] == "ready":
+        status = "ready"
+    elif tracker["phase"] == "detecting":
+        status = "detecting side..."
 
     # --- 6) Metrics for the API ---
     return metrics_from_tracker(tracker, status, elbow)

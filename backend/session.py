@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from pose import IDLE_METRICS, analyze_frame, init_tracker
+from pose import IDLE_METRICS, analyze_frame, init_tracker, update_calibrate_ankle
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BACKEND_DIR.parent
@@ -20,6 +20,8 @@ SKIP_STATUSES = (
     "low conf",
     "detecting side...",
     "calibrating ankle...",
+    "ready",
+    "starting",
 )
 
 
@@ -113,6 +115,7 @@ class WorkoutSession:
         self.cap = None
         self.writer = None
         self.model = None
+        self.tracker = None  # live pose tracker; mutated by analyze loop + arm()
 
         self.running = False
         self.error = None
@@ -133,6 +136,7 @@ class WorkoutSession:
         self.original_path = str(source) if kind == "video" else None
         self.record_path = None
         self.latest_jpeg = None
+        self.tracker = None
         self.metrics = {**IDLE_METRICS, "status": "starting"}
         self.history = []
 
@@ -149,7 +153,25 @@ class WorkoutSession:
             if threading.current_thread() is not self.thread:
                 self.thread.join(timeout=8)
         self.thread = None
+        with self.lock:
+            self.tracker = None
         self._close_video()
+
+    def arm(self):
+        """Move phase ready → active so rep counting starts. Called by POST /api/go."""
+        with self.lock:
+            tracker = self.tracker
+            if tracker is None:
+                return False, "no active session"
+            if tracker.get("phase") != "ready":
+                return False, f"phase is {tracker.get('phase')!r}, need 'ready'"
+            tracker["phase"] = "active"
+            self.metrics = {
+                **self.metrics,
+                "phase": "active",
+                "status": "go",
+            }
+            return True, None
 
     def snapshot(self):
         with self.lock:
@@ -170,6 +192,8 @@ class WorkoutSession:
                 text = str(item.get("status", ""))
                 if text.startswith("GOOD"):
                     good += 1
+                elif text.startswith("calibrating"):
+                    pass
                 elif text and text not in SKIP_STATUSES:
                     issues += 1
             return {
@@ -253,6 +277,8 @@ class WorkoutSession:
         self.record_path = str(record_path) if writer is not None else None
 
         tracker = init_tracker(fps)
+        with self.lock:
+            self.tracker = tracker
         next_frame_at = time.perf_counter()
         frame_gap = 1.0 / fps
 
@@ -283,6 +309,9 @@ class WorkoutSession:
         if not has_person:
             tracker["zi"] = None
             tracker["prev_h"] = None
+            # Hard-reset hold if we were still calibrating
+            if tracker.get("phase") == "calibrating":
+                update_calibrate_ankle(tracker, None, None, None)
             return {
                 "reps": tracker["reps"],
                 "stage": tracker["stage"],
@@ -293,6 +322,8 @@ class WorkoutSession:
                 "speed": tracker.get("speed"),
                 "posture_angle": None,
                 "posture_status": None,
+                "phase": tracker.get("phase"),
+                "calib_progress": round(float(tracker.get("calib_progress") or 0.0), 2),
             }
 
         kpts = result.keypoints.data.cpu().numpy()[0].astype(float)
@@ -317,4 +348,6 @@ def metrics_from_tracker_finished(tracker):
         "speed": tracker.get("speed"),
         "posture_angle": tracker.get("posture_angle"),
         "posture_status": tracker.get("posture_status"),
+        "phase": tracker.get("phase"),
+        "calib_progress": round(float(tracker.get("calib_progress") or 0.0), 2),
     }
