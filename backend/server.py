@@ -1,14 +1,17 @@
+"""FastAPI entry point: HTTP routes around a single WorkoutSession."""
+
 from __future__ import annotations
 
 import sys
-import tempfile
 import time
 from pathlib import Path
+from typing import Any, Optional
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 import cv2
 
 ROOT = Path(__file__).resolve().parent
@@ -30,34 +33,90 @@ UPLOAD_DIR = ROOT / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# Response models (self-documenting at /docs)
+# ---------------------------------------------------------------------------
+
+
+class SeriesPoint(BaseModel):
+    """One downsampled history sample for charts."""
+
+    t: float
+    reps: int = 0
+    elbow: Optional[float] = None
+    speed: Optional[float] = None
+    posture_angle: Optional[float] = None
+    posture_status: Optional[str] = None
+
+
+class MetricsSnapshot(BaseModel):
+    """Shared metrics shape returned by /api/status and /api/summary."""
+
+    reps: int = 0
+    stage: str = "-"
+    side: Optional[str] = None
+    status: str = "idle"
+    elbow: Optional[float] = None
+    eye_height: Optional[float] = None
+    speed: Optional[float] = None
+    touch_y0: Optional[bool] = None
+    touch_y1: Optional[bool] = None
+    posture_angle: Optional[float] = None
+    posture_status: Optional[str] = None
+    phase: Optional[str] = None
+    calib_progress: float = 0.0
+    running: Optional[bool] = None
+    error: Optional[str] = None
+    source: Optional[str] = None
+    has_recording: Optional[bool] = None
+    series: list[SeriesPoint] = Field(default_factory=list)
+    # summary-only fields
+    good_frames: Optional[int] = None
+    issue_frames: Optional[int] = None
+    total_samples: Optional[int] = None
+
+
+class OkResponse(BaseModel):
+    ok: bool = True
+    source: Optional[str] = None
+    name: Optional[str] = None
+    phase: Optional[str] = None
+    error: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
 @app.get("/api/health")
-def health():
+def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/api/status")
-def status():
+@app.get("/api/status", response_model=MetricsSnapshot)
+def status() -> dict[str, Any]:
     return session.snapshot()
 
 
-@app.get("/api/summary")
-def summary():
+@app.get("/api/summary", response_model=MetricsSnapshot)
+def summary() -> dict[str, Any]:
     return session.summary()
 
 
 @app.get("/api/history")
-def history():
+def history() -> dict[str, list[dict[str, Any]]]:
     return {"series": session.history_series(max_points=300)}
 
 
-@app.post("/api/start/webcam")
-def start_webcam(camera_id: int = Form(0)):
+@app.post("/api/start/webcam", response_model=OkResponse)
+def start_webcam(camera_id: int = Form(0)) -> dict[str, Any]:
     session.start(camera_id, "webcam")
     return {"ok": True, "source": "webcam"}
 
 
-@app.post("/api/start/video")
-async def start_video(file: UploadFile = File(...)):
+@app.post("/api/start/video", response_model=OkResponse)
+async def start_video(file: UploadFile = File(...)) -> dict[str, Any]:
     suffix = Path(file.filename or "upload.mp4").suffix or ".mp4"
     dest = UPLOAD_DIR / f"session{suffix}"
     dest.write_bytes(await file.read())
@@ -65,8 +124,8 @@ async def start_video(file: UploadFile = File(...)):
     return {"ok": True, "source": "video", "name": file.filename}
 
 
-@app.post("/api/stop")
-def stop():
+@app.post("/api/stop", response_model=MetricsSnapshot)
+def stop() -> dict[str, Any]:
     session.stop()
     return session.summary()
 
@@ -93,7 +152,11 @@ def download_recording():
     path = session.playback_path()
     if not path:
         return JSONResponse({"error": "no recording yet"}, status_code=404)
-    name = "webcam-workout.mp4" if session.source_kind == "webcam" else "uploaded-workout.mp4"
+    name = (
+        "webcam-workout.mp4"
+        if session.source_kind == "webcam"
+        else "uploaded-workout.mp4"
+    )
     return FileResponse(path, media_type="video/mp4", filename=name)
 
 
@@ -104,21 +167,23 @@ def replay_stream():
         return JSONResponse({"error": "no recording yet"}, status_code=404)
 
     def frames():
-        cap = cv2.VideoCapture(str(path))
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        video_capture = cv2.VideoCapture(str(path))
+        fps = video_capture.get(cv2.CAP_PROP_FPS)
         delay = 1.0 / fps if fps and fps > 1 else 1.0 / 30.0
         while True:
-            ok, frame = cap.read()
+            ok, frame = video_capture.read()
             if not ok:
                 break
-            ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+            ok, buffer = cv2.imencode(
+                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+            )
             if ok:
                 yield (
                     b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n"
                 )
             time.sleep(delay)
-        cap.release()
+        video_capture.release()
 
     return StreamingResponse(
         frames(),
@@ -127,7 +192,7 @@ def replay_stream():
 
 
 @app.get("/api/stream")
-def stream():
+def stream() -> StreamingResponse:
     def frames():
         while True:
             jpeg = session.latest_jpeg
