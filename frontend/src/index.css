@@ -1,3 +1,19 @@
+@font-face {
+  font-family: "NCL Gesrob";
+  src: url("/fonts/ncl-gesrob.demo.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "0xProto Nerd Font";
+  src: url("/fonts/0xProto-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -20,47 +36,265 @@ button {
   cursor: pointer;
 }
 
-.page {
-  min-height: 100vh;
+/* Landing — Figma 1440×1024 frame, scaled to the viewport */
+.landing-page {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 48px 24px 32px;
-}
-
-/* Select screen — gray card, two white buttons */
-.select-card {
-  width: min(920px, 92vw);
-  height: min(520px, 70vh);
-  background: #d9d9d9;
-  display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 56px;
 }
 
-.select-card h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
+.landing-sizer {
+  width: min(100vw, calc(100vh * 1440 / 1024));
+  aspect-ratio: 1440 / 1024;
+  position: relative;
+  overflow: hidden;
 }
 
-.select-actions {
+.landing-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1440px;
+  height: 1024px;
+  transform-origin: top left;
+  transform: scale(calc(min(100vw, 100vh * 1440 / 1024) / 1440px));
+}
+
+.landing-bg {
+  position: absolute;
+  inset: 0;
   display: flex;
-  gap: 80px;
+  flex-direction: column;
 }
 
-.outline-btn {
+.landing-bg-photo {
+  position: relative;
+  width: 1440px;
+  height: 736px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.landing-bg-photo img {
+  position: absolute;
+  width: 100%;
+  height: 162.8%;
+  max-width: none;
+  left: -0.03%;
+  top: -65.52%;
+  image-rendering: pixelated;
+}
+
+.landing-bg-bar {
+  flex: 1;
+  background: #000;
+}
+
+.landing-card {
+  position: absolute;
+  top: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1272px;
   background: #fff;
-  border: 1px solid #111;
-  min-width: 160px;
-  padding: 14px 28px;
-  font-size: 18px;
+  border: 7px solid #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 106px;
+  padding: 84px 157px;
+  overflow: hidden;
 }
 
-.outline-btn:hover {
-  background: #f3f3f3;
+.landing-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.landing-wordmark-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 57px;
+}
+
+.landing-wordmark,
+.landing-year {
+  margin: 0;
+  color: #000;
+  font-family: "NCL Gesrob", "NCL Gesrob Demo", sans-serif;
+  font-weight: 400;
+  font-style: normal;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.landing-wordmark {
+  font-size: 64px;
+  letter-spacing: 35.2px;
+  transform: rotate(0.39deg);
+  margin-right: -35.2px;
+}
+
+.landing-year {
+  font-size: 48px;
+}
+
+/* LandingPageButtons — Figma set 8:52 */
+.lp-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 373px;
+  overflow: hidden;
+}
+
+.lp-buttons--start {
+  padding: 60px 91px;
+}
+
+.lp-buttons--source {
+  flex-direction: column;
+  gap: 16px;
+  padding: 60px 85px;
+}
+
+.lp-btn {
+  background: #fff;
+  border: 1px solid #000;
+  color: #000;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.lp-btn--start {
+  padding: 16px 32px;
+  font-size: 48px;
+}
+
+.lp-btn--choice {
+  width: 202px;
+  padding: 16px 40px;
+  font-size: 32px;
+}
+
+.lp-btn--nav {
+  padding: 16px 40px;
+  font-size: 32px;
+}
+
+.lp-btn:hover:not(:disabled) {
+  background: #000;
+  color: #fff;
+}
+
+.lp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.landing-error {
+  margin: 0;
+}
+
+.landing-wordmark--on-dark {
+  color: #fff;
+}
+
+/* WebcamRulePage — Figma 26:686 */
+.rules-page-card {
+  position: absolute;
+  top: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1272px;
+  height: 648px;
+  background: #fff;
+  border: 7px solid #000;
+  overflow: hidden;
+}
+
+.rules-page-wordmark {
+  position: absolute;
+  top: 829px;
+  left: 207px;
+  width: 958px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.rules-page-error {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+}
+
+/* RulesComponent — Figma set 26:659 */
+.rules-card {
+  position: absolute;
+  left: 308px;
+  top: 20px;
+  width: 655px;
+  height: 621px;
+  border: 1px solid #000;
+  display: flex;
+  flex-direction: column;
+  padding: 31px 16px 31px;
+  overflow: hidden;
+}
+
+.rules-heading {
+  margin: 0;
+  text-align: center;
+  color: #000;
+  font-family: "NCL Gesrob", "NCL Gesrob Demo", sans-serif;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.rules-text {
+  flex: 1;
+  margin: 80px 0 0;
+  padding: 0 0 0 48px;
+  color: #000;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: normal;
+  list-style: decimal;
+}
+
+.rules-text li {
+  padding-left: 8px;
+}
+
+.rules-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rules-cta-hover {
+  display: none;
+}
+
+.lp-btn--nav:hover:not(:disabled) .rules-cta-idle {
+  display: none;
+}
+
+.lp-btn--nav:hover:not(:disabled) .rules-cta-hover {
+  display: inline;
 }
 
 .hidden-file {
@@ -72,183 +306,476 @@ button {
   margin-top: 16px;
 }
 
-/* Workout screen */
-.workout-page {
-  width: min(1100px, 94vw);
+/* GoCounter — Figma set 42:231 */
+.go-counter {
+  position: relative;
+  width: 523px;
+  height: 523px;
+}
+
+.go-counter-outer {
+  position: absolute;
+  border-radius: 50%;
+  background: #000;
+}
+
+.go-counter--0 .go-counter-outer,
+.go-counter--1 .go-counter-outer,
+.go-counter--2 .go-counter-outer,
+.go-counter--3 .go-counter-outer {
+  inset: 0;
+}
+
+.go-counter--4 .go-counter-outer,
+.go-counter--5 .go-counter-outer {
+  width: 432px;
+  height: 432px;
+  left: 45px;
+  top: 46px;
+}
+
+.go-counter-inner {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #000;
+  box-sizing: border-box;
+}
+
+.go-counter--1 .go-counter-inner {
+  width: 465px;
+  height: 465px;
+  left: 29px;
+  top: 0;
+}
+
+.go-counter--2 .go-counter-inner {
+  width: 465px;
+  height: 465px;
+  left: 58px;
+  top: 29px;
+}
+
+.go-counter--3 .go-counter-inner {
+  width: 465px;
+  height: 465px;
+  left: 29px;
+  top: 58px;
+}
+
+.go-counter--4 .go-counter-inner {
+  width: 384px;
+  height: 384px;
+  left: 69px;
+  top: 70px;
+}
+
+.go-counter-text {
+  position: absolute;
+  margin: 0;
+  color: #000;
+  font-family: "NCL Gesrob", "NCL Gesrob Demo", sans-serif;
+  font-size: 200px;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.go-counter--1 .go-counter-text,
+.go-counter--2 .go-counter-text,
+.go-counter--3 .go-counter-text {
+  left: 120px;
+  top: 92px;
+}
+
+.go-counter--4 .go-counter-text {
+  left: -21px;
+  top: 121px;
+}
+
+/* ScoreCard — Figma set 74:813 / node 74:814 */
+.score-card {
+  width: 686px;
+  height: 645px;
+  background: #000;
+}
+
+.score-card--open {
+  display: flex;
+  align-items: center;
+  padding: 55px 120px;
+}
+
+.score-sheet {
+  width: 446px;
+  height: 517px;
+  border: 3px solid #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
+  padding: 0 40px 25px;
 }
 
-.workout-page .chart-wrap {
+.score-sheet-title {
   width: 100%;
+  height: 61px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 48px;
 }
 
-.video-stage {
-  position: relative;
-  width: 100%;
-  background: #d9d9d9;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
+.score-sheet-title p {
+  margin: 0;
+  color: #fff;
+  font-family: "NCL Gesrob", "NCL Gesrob Demo", sans-serif;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 45px;
 }
 
-.video-stage img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #cfcfcf;
-  display: block;
-}
-
-.overlay {
-  position: absolute;
-  top: 16px;
-  background: #d9d9d9;
-  border: none;
-  min-width: 140px;
-  padding: 12px 18px;
-  font-size: 16px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.overlay.left {
-  left: 16px;
-}
-
-.overlay.right {
-  right: 16px;
-  max-width: 280px;
-  text-align: left;
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.overlay.right h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  text-align: center;
-}
-
-.overlay.right p {
-  margin: 4px 0;
-}
-
-.finish-btn {
-  margin-top: 28px;
-  background: #d9d9d9;
-  border: none;
-  min-width: 220px;
-  padding: 16px 32px;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.finish-btn:hover {
-  background: #c9c9c9;
-}
-
-/* Analytics screen */
-.analytics-page {
-  width: min(1100px, 94vw);
+.score-sheet-body {
+  width: 366px;
+  flex: 1;
+  min-height: 0;
+  border: 4px solid #fff;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30px 18px 16px;
 }
 
-.analytics-btn {
-  align-self: flex-start;
-  background: #d9d9d9;
-  border: none;
-  padding: 16px 28px;
-  font-size: 18px;
-  font-weight: 700;
+.score-block {
+  width: 322px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
-.analytics-video {
+.score-block-label,
+.score-row {
+  margin: 0;
+  height: 24px;
+  color: #fff;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 20px;
+  letter-spacing: 2px;
+  line-height: 24px;
+}
+
+.score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #d9d9d9;
+}
+
+/* Hud — Figma 115:1371 */
+.hud {
+  width: 1259px;
+  height: 101px;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28px 49px 32px;
+  box-sizing: border-box;
+}
+
+.hud-stat {
+  display: flex;
+  align-items: center;
+  color: #fff;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 32px;
+  letter-spacing: 3.2px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.hud-stat--reps {
+  width: 130px;
+  justify-content: space-between;
+}
+
+.hud-stat--time {
+  gap: 34px;
+}
+
+.hud-stat--score {
+  gap: 17px;
+}
+
+/* SessionStage — Figma set 42:275 on page 38:43 */
+.session-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
+}
+
+.session-heading {
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  color: #000;
+  font-family: "NCL Gesrob", "NCL Gesrob Demo", sans-serif;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.session-complete-msg {
+  position: absolute;
+  top: 298px;
+  left: 83px;
+  right: 83px;
+  margin: 0;
+  color: #000;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.session-counter {
+  position: absolute;
+  left: 368px;
+  top: 56px;
+}
+
+.session-feed {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: #000;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  z-index: 1;
 }
 
-.analytics-video img,
-.analytics-video video {
-  width: 100%;
-  height: 100%;
+.session-stage--playing .session-feed {
+  bottom: 101px;
+}
+
+.session-stage--feed .session-heading {
+  z-index: 2;
+  color: #fff;
+  text-shadow: 0 1px 2px #000;
+}
+
+.session-stage--feed .session-counter,
+.session-stage--feed .session-complete-msg {
+  z-index: 2;
+}
+
+.session-feed img {
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
-  background: #cfcfcf;
-}
-
-.chart-wrap {
-  width: 100%;
-  background: #ececec;
-  padding: 12px 16px 8px;
-}
-
-.chart-legend {
-  display: flex;
-  gap: 18px;
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.chart-legend .leg.speed {
-  color: #2a7a3a;
-}
-
-.chart-legend .leg.elbow {
-  color: #9b2d9b;
-}
-
-.chart-legend .leg.reps {
-  color: #c45c1a;
-}
-
-.chart-legend .leg.posture {
-  color: #1a6fc4;
-}
-
-.workout-chart {
-  width: 100%;
-  height: auto;
   display: block;
-  background: #f7f7f7;
 }
 
-.workout-chart .axis-label {
-  font-size: 10px;
+.session-stage .hud {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  z-index: 2;
 }
 
-.hint {
-  margin: 0;
-  color: #444;
-  font-size: 14px;
+.session-stage .score-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
-a.outline-btn {
-  display: inline-block;
-  text-align: center;
-  text-decoration: none;
-  color: inherit;
-}
-
-.stats {
+.layout-preview-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 4;
   display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-  font-size: 16px;
+  gap: 8px;
 }
 
-.back-link {
-  background: none;
-  border: none;
-  text-decoration: underline;
-  padding: 0;
-  font-size: 16px;
+.layout-preview-btn {
+  background: #fff;
+  border: 1px solid #000;
+  color: #000;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+}
+
+.layout-preview-btn--on,
+.layout-preview-btn:hover {
+  background: #000;
+  color: #fff;
+}
+
+/* WebCamSessionEnded — Figma 158:653, 2s keyframes play once */
+.ended-card {
+  position: relative;
+  width: 1273px;
+  height: 648px;
+  background: #fff;
+  border: 7px solid #000;
+  overflow: hidden;
+}
+
+.ended-heading {
+  position: absolute;
+  left: 50%;
+  top: 259px;
+  transform: translateX(-50%);
+  margin: 0;
+  color: #000;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 96px;
+  font-weight: 400;
+  line-height: normal;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.ended-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 101px;
+  background: #000;
+  transform-origin: 50% 100%;
+}
+
+.ended-card .score-card {
+  position: absolute;
+  left: 286px;
+  top: -4px;
+  z-index: 1;
+  opacity: 0;
+}
+
+.ended-actions {
+  position: absolute;
+  left: 36px;
+  right: 36px;
+  top: 529px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ended-card--anim .ended-heading {
+  animation: ended-heading-anim 2s forwards;
+}
+
+.ended-card--anim .ended-bar {
+  animation: ended-bar-anim 2s forwards;
+}
+
+.ended-card--anim .score-card {
+  animation: ended-score-anim 2s forwards;
+}
+
+.ended-card--anim .ended-actions {
+  animation: ended-actions-anim 2s forwards;
+}
+
+@keyframes ended-heading-anim {
+  0% {
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+  25% {
+    opacity: 1;
+    animation-timing-function: ease-out;
+  }
+  62.15% {
+    opacity: 0;
+    animation-timing-function: linear;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes ended-bar-anim {
+  0% {
+    transform: scaleX(1) scaleY(1);
+    animation-timing-function: linear;
+  }
+  32.45% {
+    transform: scaleX(1) scaleY(1);
+    animation-timing-function: ease-in;
+  }
+  82.55% {
+    transform: scaleX(0.547) scaleY(6.416);
+    animation-timing-function: linear;
+  }
+  100% {
+    transform: scaleX(0.547) scaleY(6.416);
+  }
+}
+
+@keyframes ended-score-anim {
+  0% {
+    opacity: 0;
+    animation-timing-function: linear;
+  }
+  99.99% {
+    opacity: 0;
+    animation-timing-function: ease-out;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes ended-actions-anim {
+  0% {
+    opacity: 0;
+    pointer-events: none;
+  }
+  86.65% {
+    opacity: 0;
+    pointer-events: none;
+  }
+  99.99% {
+    opacity: 0.59459;
+    pointer-events: none;
+  }
+  100% {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* WebcamSessionEndedPage — Figma 134:168 */
+.ended-page-slot {
+  position: absolute;
+  top: 104px;
+  left: 50%;
+  transform: translateX(-50%);
 }

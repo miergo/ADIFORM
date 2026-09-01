@@ -1,482 +1,389 @@
-"""Edge tests for pose analysis helpers (no YOLO / webcam required)."""
-
-from __future__ import annotations
-
-from unittest.mock import patch
+"""Unit tests for minimal pose.py (numpy only, no YOLO)."""
 
 import numpy as np
-import pytest
-from scipy.signal import sosfilt, sosfilt_zi
 
 from pose import (
-    CALIB_ELBOW_MIN,
-    CONF_MIN,
-    DOWN_TOUCH_PX,
-    HOLD_CALIB_POSE_TIME,
-    LEFT_EYE,
-    MIN_Y1_PX,
-    NOSE,
-    RIGHT_EYE,
-    SIDE_MARGIN,
-    SIDE_VOTES_NEEDED,
-    UP_ELBOW,
-    VIDEO_AUTO_CALIB_FRAMES,
-    analyze_frame,
-    eye_point,
-    guess_side,
-    init_tracker,
+    DOWN_BAR_TOL,
+    HipPosture,
+    Pushup,
+    UP_BAR_TOL,
+    closest_person,
+    hit_depth_multiplier,
+    is_down_pose,
+    is_ready_pose,
+    is_up_pose,
     joint_angle,
-    make_smoother,
-    metrics_from_tracker,
-    pick_side_from_votes,
-    smooth_xy,
-    update_calibrate_ankle,
-    update_eye_speed,
-    update_meters_per_px,
-    update_rep_count,
+    pick_side,
+    stroke_points,
 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers to build synthetic COCO-17 keypoints
-# ---------------------------------------------------------------------------
+def _blank_keypoints() -> np.ndarray:
+    """One person, 17 joints, all zero confidence."""
+    return np.zeros((1, 17, 3), dtype=np.float64)
 
 
-def blank_keypoints(confidence: float = 0.9) -> np.ndarray:
-    """(17, 3) keypoints with given confidence; xy filled by callers."""
-    keypoints = np.zeros((17, 3), dtype=np.float64)
-    keypoints[:, 2] = confidence
-    return keypoints
+def _set_joint(kpts: np.ndarray, idx: int, x: float, y: float, conf: float = 1.0) -> None:
+    kpts[0, idx] = [x, y, conf]
 
 
-def old_smooth_xy(xy, sos, zi):
-    """Reference per-point loop (pre-vectorization) for regression checks."""
-    xy = np.asarray(xy, dtype=np.float64)
-    num_keypoints, num_axes = xy.shape
-    out = np.empty_like(xy)
-    if zi is None:
-        base = sosfilt_zi(sos)
-        zi = np.zeros((num_keypoints, num_axes) + base.shape, dtype=np.float64)
-        for i in range(num_keypoints):
-            for j in range(num_axes):
-                zi[i, j] = base * xy[i, j]
-                out[i, j] = xy[i, j]
-        return out, zi
-    for i in range(num_keypoints):
-        for j in range(num_axes):
-            filtered, zi[i, j] = sosfilt(sos, [xy[i, j]], zi=zi[i, j])
-            out[i, j] = filtered[0]
-    return out, zi
+def _left_up_pose(kpts: np.ndarray) -> None:
+    """Straight left arm and leg, shoulder above hip (up plank)."""
+    _set_joint(kpts, 5, 100, 100)   # shoulder
+    _set_joint(kpts, 7, 150, 100)   # elbow (horizontal arm -> ~180 deg)
+    _set_joint(kpts, 9, 200, 100)   # wrist
+    _set_joint(kpts, 11, 100, 200)  # hip (below shoulder)
+    _set_joint(kpts, 13, 100, 250)  # knee (between hip and ankle)
+    _set_joint(kpts, 15, 100, 300)  # ankle
 
 
-# =============================================================================
-# joint_angle
-# =============================================================================
+def _left_kneeling_pose(kpts: np.ndarray) -> None:
+    """Torso up but knee bent (kneeling)."""
+    _set_joint(kpts, 5, 100, 100)   # shoulder
+    _set_joint(kpts, 7, 150, 100)   # elbow
+    _set_joint(kpts, 9, 200, 100)   # wrist
+    _set_joint(kpts, 11, 100, 200)  # hip
+    _set_joint(kpts, 13, 100, 280)  # knee forward/down (bent leg)
+    _set_joint(kpts, 15, 130, 300)  # ankle behind knee
+
+
+def _left_down_pose(kpts: np.ndarray) -> None:
+    """Shoulder at locked low bar (down position)."""
+    _set_joint(kpts, 5, 100, 300)   # shoulder at low_bar
+    _set_joint(kpts, 7, 100, 250)   # elbow
+    _set_joint(kpts, 9, 130, 250)   # wrist
+    _set_joint(kpts, 11, 100, 320)  # hip
+    _set_joint(kpts, 13, 100, 335)  # knee
+    _set_joint(kpts, 15, 100, 350)  # ankle moved (should not affect down detect)
+
+
+def _left_down_sagging_pose(kpts: np.ndarray) -> None:
+    """Down position with sagging hips."""
+    _set_joint(kpts, 5, 100, 300)
+    _set_joint(kpts, 7, 100, 250)
+    _set_joint(kpts, 9, 130, 250)
+    _set_joint(kpts, 11, 100, 380)  # hip well below shoulder-ankle line
+    _set_joint(kpts, 13, 100, 365)
+    _set_joint(kpts, 15, 100, 350)
+
+
+def _left_partial_down_pose(kpts: np.ndarray, shoulder_y: float) -> None:
+    """Between top and low bars with aligned body."""
+    _set_joint(kpts, 5, 100, shoulder_y)
+    _set_joint(kpts, 7, 150, shoulder_y)
+    _set_joint(kpts, 9, 200, shoulder_y)
+    _set_joint(kpts, 11, 100, shoulder_y + 100)
+    _set_joint(kpts, 13, 100, shoulder_y + 150)
+    _set_joint(kpts, 15, 100, 300)
+
+
+class TestClosestPerson:
+    def test_picks_largest_box(self):
+        boxes = np.array(
+            [
+                [0, 0, 50, 50],    # area 2500
+                [0, 0, 100, 100],  # area 10000
+            ],
+            dtype=np.float64,
+        )
+        assert closest_person(boxes) == 1
+
+    def test_no_boxes(self):
+        assert closest_person(None) is None
+        assert closest_person(np.zeros((0, 4))) is None
+
+
+class TestPickSide:
+    def test_picks_higher_confidence_side(self):
+        kpts = np.zeros((17, 3), dtype=np.float64)
+        for idx in (5, 7, 9, 11, 13, 15):
+            kpts[idx] = [0, 0, 0.2]
+        for idx in (6, 8, 10, 12, 14, 16):
+            kpts[idx] = [0, 0, 0.9]
+        assert pick_side(kpts) == "right"
+
+    def test_defaults_left_on_tie(self):
+        kpts = np.zeros((17, 3), dtype=np.float64)
+        kpts[:, 2] = 0.5
+        assert pick_side(kpts) == "left"
 
 
 class TestJointAngle:
-    def test_degenerate_coincident_points_returns_none(self):
-        point = np.array([1.0, 2.0])
-        assert joint_angle(point, point, point) is None
+    def test_straight_arm_is_near_180(self):
+        shoulder = np.array([0, 0, 1.0])
+        elbow = np.array([1, 0, 1.0])
+        wrist = np.array([2, 0, 1.0])
+        assert joint_angle(shoulder, elbow, wrist) == 180.0
 
-    def test_collinear_points_are_180(self):
-        point_a = np.array([0.0, 0.0])
-        point_b = np.array([1.0, 0.0])
-        point_c = np.array([2.0, 0.0])
-        angle = joint_angle(point_a, point_b, point_c)
-        assert angle is not None
-        assert angle == pytest.approx(180.0, abs=1e-6)
-
-    def test_right_angle_is_90(self):
-        point_a = np.array([0.0, 1.0])
-        point_b = np.array([0.0, 0.0])
-        point_c = np.array([1.0, 0.0])
-        angle = joint_angle(point_a, point_b, point_c)
-        assert angle is not None
-        assert angle == pytest.approx(90.0, abs=1e-6)
+    def test_right_angle(self):
+        shoulder = np.array([0, 0, 1.0])
+        elbow = np.array([1, 0, 1.0])
+        wrist = np.array([1, 1, 1.0])
+        assert joint_angle(shoulder, elbow, wrist) == 90.0
 
 
-# =============================================================================
-# eye_point
-# =============================================================================
+class TestPoses:
+    def test_ready_pose(self):
+        assert is_ready_pose(100, 200, 300, 175.0, 179.0, 179.0) is True
+        assert is_ready_pose(100, 200, 300, 175.0, 180.0, 180.0) is True
+        assert is_ready_pose(200, 100, 300, 175.0, 179.0, 179.0) is False
+        assert is_ready_pose(100, 200, 90, 175.0, 179.0, 179.0) is False  # ankle above shoulder
+        assert is_ready_pose(100, 200, 300, 140.0, 179.0, 179.0) is False  # elbow too bent
+        assert is_ready_pose(100, 200, 300, 175.0, 174.0, 179.0) is False  # body not straight
+        assert is_ready_pose(100, 200, 300, 175.0, 179.0, 174.0) is False  # knee bent
+        assert is_ready_pose(100, 200, 300, 175.0, None, 179.0) is False
+        assert is_ready_pose(100, 200, 300, 175.0, 179.0, None) is False
+
+    def test_up_pose_at_top_bar(self):
+        top, low = 100.0, 300.0  # range 200, tol 30
+        assert is_up_pose(100, top, low) is True
+        assert is_up_pose(120, top, low) is True
+        assert is_up_pose(200, top, low) is False
+
+    def test_down_pose_at_low_bar(self):
+        top, low = 100.0, 300.0  # range 200, tol 30
+        assert is_down_pose(300, top, low) is True
+        assert is_down_pose(280, top, low) is True
+        assert is_down_pose(100, top, low) is False
 
 
-class TestEyePoint:
-    def test_both_eyes_returns_average(self):
-        keypoints = blank_keypoints()
-        keypoints[LEFT_EYE] = [10.0, 20.0, 0.9]
-        keypoints[RIGHT_EYE] = [30.0, 40.0, 0.9]
-        eye = eye_point(keypoints)
-        assert eye is not None
-        np.testing.assert_allclose(eye, [20.0, 30.0])
-
-    def test_one_eye_only(self):
-        keypoints = blank_keypoints(confidence=0.0)
-        keypoints[LEFT_EYE] = [5.0, 6.0, 0.9]
-        eye = eye_point(keypoints)
-        assert eye is not None
-        np.testing.assert_allclose(eye, [5.0, 6.0])
-
-    def test_nose_fallback(self):
-        keypoints = blank_keypoints(confidence=0.0)
-        keypoints[NOSE] = [7.0, 8.0, 0.9]
-        eye = eye_point(keypoints)
-        assert eye is not None
-        np.testing.assert_allclose(eye, [7.0, 8.0])
-
-    def test_nothing_confident_returns_none(self):
-        keypoints = blank_keypoints(confidence=CONF_MIN - 0.01)
-        assert eye_point(keypoints) is None
-
-
-# =============================================================================
-# Side detection
-# =============================================================================
-
-
-class TestSideDetection:
-    def test_guess_side_tie_within_margin_returns_none(self):
-        keypoints = blank_keypoints()
-        # Elbow/wrist confidences nearly equal
-        keypoints[7][2] = 0.5
-        keypoints[9][2] = 0.5
-        keypoints[8][2] = 0.5 + SIDE_MARGIN / 2
-        keypoints[10][2] = 0.5 + SIDE_MARGIN / 2
-        assert guess_side(keypoints) is None
-
-    def test_guess_side_prefers_higher_confidence(self):
-        keypoints = blank_keypoints()
-        keypoints[7][2] = keypoints[9][2] = 0.3
-        keypoints[8][2] = keypoints[10][2] = 0.9
-        assert guess_side(keypoints) == "right"
-
-    def test_pick_side_locks_only_after_enough_votes(self):
-        keypoints = blank_keypoints()
-        keypoints[7][2] = keypoints[9][2] = 0.9
-        keypoints[8][2] = keypoints[10][2] = 0.2
-
-        left_votes, right_votes, side, arm, chain = 0, 0, None, None, None
-        for _ in range(SIDE_VOTES_NEEDED - 1):
-            left_votes, right_votes, side, arm, chain = pick_side_from_votes(
-                keypoints, left_votes, right_votes
-            )
-        assert side is None
-        assert arm is None
-
-        left_votes, right_votes, side, arm, chain = pick_side_from_votes(
-            keypoints, left_votes, right_votes
+class TestHipPosture:
+    def _pts(self, shoulder, hip, ankle):
+        return (
+            np.array([*shoulder, 1.0]),
+            np.array([*hip, 1.0]),
+            np.array([*ankle, 1.0]),
         )
-        assert side == "left"
-        assert arm is not None
-        assert chain is not None
+
+    def test_aligned_collinear(self):
+        sh, hp, ank = self._pts((0, 0), (100, 0), (200, 0))
+        out = HipPosture().analyze(sh, hp, ank)
+        assert out.hip_status == "aligned"
+        assert out.hip_angle == 180.0
+
+    def test_sagging_below_base(self):
+        sh, hp, ank = self._pts((0, 0), (100, 50), (200, 0))
+        out = HipPosture().analyze(sh, hp, ank)
+        assert out.hip_status == "sagging"
+        assert out.hip_angle < 180.0
+
+    def test_hips_up_above_base(self):
+        sh, hp, ank = self._pts((0, 0), (100, -50), (200, 0))
+        out = HipPosture().analyze(sh, hp, ank)
+        assert out.hip_status == "hips_up"
+        assert out.hip_angle < 180.0
 
 
-# =============================================================================
-# smooth_xy
-# =============================================================================
+class TestHitDepthMultiplier:
+    def test_edge_of_band_is_1x(self):
+        mult, label = hit_depth_multiplier(1.0 - DOWN_BAR_TOL, DOWN_BAR_TOL)
+        assert mult == 1.0
+        assert label == "hit"
+
+    def test_full_depth_is_2x(self):
+        mult, label = hit_depth_multiplier(1.0, DOWN_BAR_TOL)
+        assert mult == 2.0
+        assert label == "full depth"
+
+    def test_mid_band_between_1_and_2(self):
+        edge = 1.0 - UP_BAR_TOL
+        mid = edge + UP_BAR_TOL / 2
+        mult, _ = hit_depth_multiplier(mid, UP_BAR_TOL)
+        assert 1.0 < mult < 2.0
 
 
-class TestSmoothXy:
-    def test_reseed_first_output_equals_input(self):
-        sos, _ = make_smoother(30)
-        xy = np.random.default_rng(1).normal(size=(17, 2))
-        smoothed, zi = smooth_xy(xy, sos, None)
-        np.testing.assert_allclose(smoothed, xy)
-        assert zi is not None
+class TestStrokePoints:
+    def test_hit_good(self):
+        assert stroke_points(True, True) == 100
 
-    def test_output_finite_under_jitter(self):
-        sos, zi = make_smoother(30)
-        rng = np.random.default_rng(2)
-        xy = rng.normal(size=(17, 2))
-        smoothed, zi = smooth_xy(xy, sos, None)
-        for _ in range(20):
-            xy = xy + rng.normal(scale=2.0, size=(17, 2))
-            smoothed, zi = smooth_xy(xy, sos, zi)
-        assert np.isfinite(smoothed).all()
+    def test_hit_bad(self):
+        assert stroke_points(True, False) == 50
 
-    def test_vectorized_matches_old_loop(self):
-        sos, _ = make_smoother(30)
-        rng = np.random.default_rng(3)
-        xy0 = rng.normal(size=(17, 2))
-        xy1 = xy0 + rng.normal(scale=0.5, size=(17, 2))
+    def test_miss_good(self):
+        assert stroke_points(False, True) == 25
 
-        new0, new_zi = smooth_xy(xy0, sos, None)
-        new1, new_zi2 = smooth_xy(xy1, sos, new_zi)
-
-        old0, old_zi = old_smooth_xy(xy0, sos, None)
-        old1, old_zi2 = old_smooth_xy(xy1, sos, old_zi)
-
-        np.testing.assert_allclose(new0, old0)
-        np.testing.assert_allclose(new1, old1)
-        np.testing.assert_allclose(new_zi2, old_zi2)
+    def test_miss_bad(self):
+        assert stroke_points(False, False) == 10
 
 
-# =============================================================================
-# update_rep_count FSM
-# =============================================================================
+class TestPushup:
+    def test_no_person(self):
+        tracker = Pushup()
+        out = tracker.update(None, None)
+        assert out["detected"] is False
+        assert out["reps"] == 0
 
+    def test_locks_bars_on_first_up_pose(self):
+        tracker = Pushup()
+        kpts = _blank_keypoints()
+        _left_up_pose(kpts)
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
 
-class TestUpdateRepCount:
-    def test_no_rep_without_prior_down(self):
-        tracker = init_tracker(30)
-        tracker["stage"] = "-"
-        update_rep_count(DOWN_TOUCH_PX + 50, UP_ELBOW + 10, tracker)
-        assert tracker["reps"] == 0
-        assert tracker["stage"] == "-"
+        out = tracker.update(boxes, kpts)
+        assert out["detected"] is True
+        assert out["top_bar"] == 100.0
+        assert out["low_bar"] == 300.0
+        assert out["hip_angle"] is not None
+        assert out["hip_status"] in ("aligned", "hips_up", "sagging")
+        assert out["knee_angle"] is not None
 
-    def test_down_with_elbow_none_still_registers(self):
-        tracker = init_tracker(30)
-        update_rep_count(DOWN_TOUCH_PX - 1, None, tracker)
-        assert tracker["stage"] == "down"
-        assert tracker["reps"] == 0
+    def test_kneeling_does_not_lock_bars(self):
+        tracker = Pushup()
+        kpts = _blank_keypoints()
+        _left_kneeling_pose(kpts)
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
 
-    def test_down_then_up_counts_one_rep(self):
-        tracker = init_tracker(30)
-        update_rep_count(0.0, 90.0, tracker)
-        assert tracker["stage"] == "down"
-        update_rep_count(100.0, UP_ELBOW, tracker)
-        assert tracker["reps"] == 1
-        assert tracker["stage"] == "up"
+        out = tracker.update(boxes, kpts)
+        assert out["detected"] is True
+        assert out["top_bar"] is None
+        assert out["low_bar"] is None
 
-    def test_repeated_downs_count_once_until_up(self):
-        tracker = init_tracker(30)
-        update_rep_count(0.0, 80.0, tracker)
-        update_rep_count(0.0, 80.0, tracker)
-        update_rep_count(100.0, UP_ELBOW, tracker)
-        assert tracker["reps"] == 1
-        update_rep_count(0.0, 80.0, tracker)
-        update_rep_count(100.0, UP_ELBOW, tracker)
-        assert tracker["reps"] == 2
+    def test_one_full_rep(self):
+        tracker = Pushup()
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
 
-    def test_none_height_is_noop(self):
-        tracker = init_tracker(30)
-        tracker["stage"] = "down"
-        tracker["reps"] = 3
-        update_rep_count(None, UP_ELBOW, tracker)
-        assert tracker["reps"] == 3
-        assert tracker["stage"] == "down"
+        # Lock bars in up pose
+        kpts_up = _blank_keypoints()
+        _left_up_pose(kpts_up)
+        out = tracker.update(boxes, kpts_up)
+        assert tracker.reps == 0
+        assert tracker.stage == "up"
+        assert tracker.score == 0
+        assert out["score"] == 0
 
+        # Move to down pose
+        kpts_down = _blank_keypoints()
+        _left_down_pose(kpts_down)
+        tracker.update(boxes, kpts_down)
+        assert tracker.stage == "down"
+        assert tracker.reps == 0
 
-# =============================================================================
-# update_calibrate_ankle
-# =============================================================================
+        # Back to up pose -> count rep
+        kpts_up2 = _blank_keypoints()
+        _left_up_pose(kpts_up2)
+        tracker.update(boxes, kpts_up2)
+        assert tracker.stage == "up"
+        assert tracker.reps == 1
+        assert tracker.score == 400
+        assert tracker.y0_hits == 1
+        assert tracker.y1_hits == 1
+        assert tracker.award_seq == 2
+        assert tracker.last_multiplier == 2.0
+        assert tracker.last_award_label == "full depth"
 
+    def test_down_hit_aligned_scores_200(self):
+        tracker = Pushup()
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
+        kpts_up = _blank_keypoints()
+        _left_up_pose(kpts_up)
+        tracker.update(boxes, kpts_up)
 
-class TestUpdateCalibrateAnkle:
-    def test_hold_resets_when_ankle_lost(self):
-        tracker = init_tracker(30)
-        tracker["side"] = "left"
-        tracker["phase"] = "calibrating"
-        tracker["calib_hold_start"] = 100.0
-        tracker["calib_ankle_samples"] = [np.array([1.0, 2.0])]
-        tracker["calib_h_samples"] = [50.0]
-        tracker["calib_progress"] = 0.5
+        kpts_down = _blank_keypoints()
+        _left_down_pose(kpts_down)
+        tracker.update(boxes, kpts_down)
 
-        update_calibrate_ankle(tracker, None, 50.0, CALIB_ELBOW_MIN)
-        assert tracker["calib_hold_start"] is None
-        assert tracker["calib_ankle_samples"] == []
-        assert tracker["calib_progress"] == 0.0
+        assert tracker.score == 200
+        assert tracker.y1_hits == 1
+        assert tracker.y0_hits == 0
+        assert tracker.reps == 0
+        assert tracker.award_seq == 1
+        assert tracker.last_multiplier == 2.0
 
-    def test_hold_resets_when_elbow_below_min(self):
-        tracker = init_tracker(30)
-        tracker["side"] = "left"
-        tracker["phase"] = "calibrating"
-        ankle = np.array([100.0, 400.0])
-        update_calibrate_ankle(tracker, ankle, 80.0, CALIB_ELBOW_MIN - 1)
-        assert tracker["calib_hold_start"] is None
-        assert tracker["calib_progress"] == 0.0
+    def test_down_hit_sagging_scores_100(self):
+        tracker = Pushup()
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
+        kpts_up = _blank_keypoints()
+        _left_up_pose(kpts_up)
+        tracker.update(boxes, kpts_up)
 
-    def test_completes_after_hold_time_and_floors_y1(self):
-        tracker = init_tracker(30)
-        tracker["side"] = "right"
-        tracker["phase"] = "calibrating"
-        ankle = np.array([100.0, 400.0])
-        # Tiny height so y1 must floor at MIN_Y1_PX
-        eye_height_px = 10.0
+        kpts_down = _blank_keypoints()
+        _left_down_sagging_pose(kpts_down)
+        tracker.update(boxes, kpts_down)
 
-        with patch("pose.time.time", return_value=1000.0):
-            update_calibrate_ankle(tracker, ankle, eye_height_px, CALIB_ELBOW_MIN)
-            assert tracker["phase"] == "calibrating"
-            assert tracker["calib_hold_start"] == 1000.0
+        assert tracker.score == 100
+        assert tracker.y1_hits == 1
+        assert tracker.posture_bad == 1
+        assert tracker.last_multiplier == 2.0
 
-        with patch(
-            "pose.time.time",
-            return_value=1000.0 + HOLD_CALIB_POSE_TIME,
-        ):
-            update_calibrate_ankle(tracker, ankle, eye_height_px, CALIB_ELBOW_MIN)
+    def test_miss_down_stroke_scores_25(self):
+        tracker = Pushup()
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
+        kpts_up = _blank_keypoints()
+        _left_up_pose(kpts_up)
+        tracker.update(boxes, kpts_up)
 
-        assert tracker["phase"] == "ready"
-        assert tracker["calib_progress"] == 1.0
-        assert tracker["y1"] == MIN_Y1_PX
-        assert tracker["ankle_origin"] is not None
+        kpts_partial = _blank_keypoints()
+        _left_partial_down_pose(kpts_partial, 190.0)  # 45% travel
+        tracker.update(boxes, kpts_partial)
 
-    def test_detecting_moves_to_calibrating_when_side_locked(self):
-        tracker = init_tracker(30)
-        tracker["side"] = "left"
-        tracker["phase"] = "detecting"
-        update_calibrate_ankle(tracker, np.array([1.0, 2.0]), 50.0, 160.0)
-        assert tracker["phase"] == "calibrating"
+        kpts_up2 = _blank_keypoints()
+        _left_up_pose(kpts_up2)
+        tracker.update(boxes, kpts_up2)
 
-    def test_auto_mode_locks_after_n_frames_to_active(self):
-        tracker = init_tracker(30, calib_mode="auto")
-        tracker["side"] = "right"
-        tracker["phase"] = "calibrating"
-        ankle = np.array([100.0, 400.0])
-        eye_height_px = 10.0  # floors y1 at MIN_Y1_PX
+        assert tracker.score == 25
+        assert tracker.reps == 0
+        assert tracker.y1_hits == 0
+        assert tracker.posture_good == 1
+        assert tracker.last_multiplier == 1.0
+        assert tracker.last_award_label == "miss"
 
-        for frame_index in range(VIDEO_AUTO_CALIB_FRAMES - 1):
-            update_calibrate_ankle(tracker, ankle, eye_height_px, CALIB_ELBOW_MIN)
-            assert tracker["phase"] == "calibrating"
-            assert tracker["calib_progress"] == pytest.approx(
-                (frame_index + 1) / VIDEO_AUTO_CALIB_FRAMES
-            )
+    def test_small_wobble_scores_nothing(self):
+        tracker = Pushup()
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
+        kpts_up = _blank_keypoints()
+        _left_up_pose(kpts_up)
+        tracker.update(boxes, kpts_up)
 
-        update_calibrate_ankle(tracker, ankle, eye_height_px, CALIB_ELBOW_MIN)
-        assert tracker["phase"] == "active"
-        assert tracker["calib_progress"] == 1.0
-        assert tracker["y1"] == MIN_Y1_PX
-        assert tracker["ankle_origin"] is not None
+        kpts_partial = _blank_keypoints()
+        _left_partial_down_pose(kpts_partial, 170.0)  # 35% travel
+        tracker.update(boxes, kpts_partial)
 
-    def test_auto_mode_bent_elbow_resets_consecutive_counter(self):
-        tracker = init_tracker(30, calib_mode="auto")
-        tracker["side"] = "right"
-        tracker["phase"] = "calibrating"
-        ankle = np.array([100.0, 400.0])
+        kpts_up2 = _blank_keypoints()
+        _left_up_pose(kpts_up2)
+        tracker.update(boxes, kpts_up2)
 
-        update_calibrate_ankle(tracker, ankle, 80.0, CALIB_ELBOW_MIN)
-        update_calibrate_ankle(tracker, ankle, 80.0, CALIB_ELBOW_MIN)
-        assert len(tracker["calib_h_samples"]) == 2
+        assert tracker.score == 0
+        assert tracker.award_seq == 0
 
-        update_calibrate_ankle(tracker, ankle, 80.0, CALIB_ELBOW_MIN - 1)
-        assert tracker["calib_h_samples"] == []
-        assert tracker["calib_progress"] == 0.0
-        assert tracker["phase"] == "calibrating"
+    def test_reset_reps_keeps_bars(self):
+        tracker = Pushup()
+        boxes = np.array([[0, 0, 200, 400]], dtype=np.float64)
+        kpts_up = _blank_keypoints()
+        _left_up_pose(kpts_up)
+        tracker.update(boxes, kpts_up)
+        kpts_down = _blank_keypoints()
+        _left_down_pose(kpts_down)
+        tracker.update(boxes, kpts_down)
+        kpts_up2 = _blank_keypoints()
+        _left_up_pose(kpts_up2)
+        tracker.update(boxes, kpts_up2)
+        assert tracker.reps == 1
 
+        tracker.reset_reps()
+        assert tracker.reps == 0
+        assert tracker.stage == "up"
+        assert tracker.top_bar == 100.0
+        assert tracker.low_bar == 300.0
+        assert tracker.score == 0
+        assert tracker.y0_hits == 0
+        assert tracker.y1_hits == 0
+        assert tracker.posture_good == 0
+        assert tracker.posture_bad == 0
+        assert tracker.award_seq == 0
+        assert tracker.last_multiplier == 1.0
 
-# =============================================================================
-# Speed / scale
-# =============================================================================
+    def test_ignores_smaller_box(self):
+        tracker = Pushup()
+        boxes = np.array(
+            [
+                [0, 0, 50, 50],
+                [0, 0, 200, 400],
+            ],
+            dtype=np.float64,
+        )
+        kpts = np.zeros((2, 17, 3), dtype=np.float64)
+        _left_up_pose(kpts[1:2])  # up pose on the large-box person only
 
-
-class TestSpeedAndScale:
-    def test_none_height_resets_prev_h(self):
-        tracker = init_tracker(30)
-        tracker["prev_h"] = 50.0
-        assert update_eye_speed(None, tracker) is None
-        assert tracker["prev_h"] is None
-
-    def test_no_speed_without_m_per_px(self):
-        tracker = init_tracker(30)
-        tracker["m_per_px"] = None
-        assert update_eye_speed(10.0, tracker) is None  # seeds prev_h
-        assert update_eye_speed(20.0, tracker) is None  # still no scale
-
-    def test_low_confidence_joints_keep_previous_scale(self):
-        tracker = init_tracker(30)
-        tracker["m_per_px"] = 0.01
-        keypoints = blank_keypoints(confidence=0.0)
-        chain = (5, 11, 15)
-        result = update_meters_per_px(keypoints, chain, tracker)
-        assert result == 0.01
-        assert tracker["m_per_px"] == 0.01
-
-
-# =============================================================================
-# Active-only rep counting via analyze_frame
-# =============================================================================
-
-
-def _pushup_keypoints(
-    eye_y: float,
-    elbow_angle_hint: str,
-    side: str = "right",
-) -> np.ndarray:
-    """
-    Build a side-profile push-up skeleton.
-
-    elbow_angle_hint: 'bent' (~90°) or 'straight' (~180°)
-    eye_y: image Y of the face (larger = lower on screen = closer to ankle)
-    """
-    keypoints = blank_keypoints(0.95)
-    # Strong right-arm confidence so side votes lock right
-    keypoints[7][2] = keypoints[9][2] = 0.2
-    keypoints[8][2] = keypoints[10][2] = 0.95
-
-    ankle_y = 400.0
-    ankle_x = 200.0
-    # Right chain: shoulder 6, hip 12, ankle 16
-    keypoints[16, :2] = [ankle_x, ankle_y]
-    keypoints[12, :2] = [ankle_x + 20, ankle_y - 80]
-    keypoints[6, :2] = [ankle_x + 40, ankle_y - 160]
-
-    # Face points
-    keypoints[LEFT_EYE, :2] = [ankle_x + 50, eye_y]
-    keypoints[RIGHT_EYE, :2] = [ankle_x + 54, eye_y]
-    keypoints[NOSE, :2] = [ankle_x + 52, eye_y]
-
-    # Right arm: shoulder 6, elbow 8, wrist 10
-    shoulder = keypoints[6, :2].copy()
-    if elbow_angle_hint == "straight":
-        keypoints[8, :2] = shoulder + np.array([0.0, 40.0])
-        keypoints[10, :2] = shoulder + np.array([0.0, 80.0])
-    else:
-        keypoints[8, :2] = shoulder + np.array([40.0, 40.0])
-        keypoints[10, :2] = shoulder + np.array([0.0, 80.0])
-
-    # Left arm placeholders (low conf already set for elbows/wrists)
-    keypoints[5, :2] = shoulder + np.array([-10.0, 0.0])
-    keypoints[11, :2] = keypoints[12, :2] + np.array([-10.0, 0.0])
-    keypoints[15, :2] = keypoints[16, :2] + np.array([-10.0, 0.0])
-    return keypoints
-
-
-class TestActiveOnlyReps:
-    def test_ready_phase_does_not_count_reps(self):
-        tracker = init_tracker(30)
-        tracker["side"] = "right"
-        tracker["arm"] = [6, 8, 10]
-        tracker["chain"] = (6, 12, 16)
-        tracker["phase"] = "ready"
-        tracker["ankle_origin"] = np.array([200.0, 400.0])
-        tracker["y1"] = 120.0
-
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        # Reset filter each frame so geometry is exact (no Butterworth lag)
-        tracker["zi"] = None
-        analyze_frame(frame, _pushup_keypoints(390.0, "bent"), tracker)
-        tracker["zi"] = None
-        analyze_frame(frame, _pushup_keypoints(280.0, "straight"), tracker)
-        assert tracker["reps"] == 0
-
-    def test_active_phase_counts_rep(self):
-        tracker = init_tracker(30)
-        tracker["side"] = "right"
-        tracker["arm"] = [6, 8, 10]
-        tracker["chain"] = (6, 12, 16)
-        tracker["phase"] = "active"
-        tracker["ankle_origin"] = np.array([200.0, 400.0])
-        tracker["y1"] = 120.0
-
-        frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        tracker["zi"] = None
-        analyze_frame(frame, _pushup_keypoints(390.0, "bent"), tracker)
-        assert tracker["stage"] == "down"
-        tracker["zi"] = None
-        analyze_frame(frame, _pushup_keypoints(280.0, "straight"), tracker)
-        assert tracker["reps"] == 1
-        assert tracker["stage"] == "up"
-
-
-# =============================================================================
-# Unified metrics payload
-# =============================================================================
-
-
-class TestMetricsPayload:
-    def test_same_keys_for_every_status(self):
-        tracker = init_tracker(30)
-        expected_keys = set(metrics_from_tracker(tracker, "idle").keys())
-        for status in ("no person", "finished", "ready", "detecting side..."):
-            assert set(metrics_from_tracker(tracker, status).keys()) == expected_keys
-        assert "touch_y0" in expected_keys
-        assert "touch_y1" in expected_keys
+        out = tracker.update(boxes, kpts)
+        assert out["detected"] is True
+        assert out["top_bar"] == 100.0

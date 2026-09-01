@@ -1,152 +1,163 @@
-"""Edge tests for session helpers (no threads / HTTP / YOLO required)."""
+"""Session phase tests (no YOLO, no camera)."""
 
-from __future__ import annotations
+import numpy as np
 
-from pathlib import Path
-
-from pose import metrics_from_tracker, init_tracker
-from session import WorkoutSession, downsample_series, file_ready
+from session import WorkoutSession
 
 
-# =============================================================================
-# downsample_series
-# =============================================================================
+def _metrics(**overrides):
+    base = {
+        "detected": True,
+        "wrist": np.array([200.0, 100.0]),
+        "elbow_point": np.array([150.0, 100.0]),
+        "shoulder": np.array([100.0, 100.0]),
+        "hip": np.array([100.0, 200.0]),
+        "ankle": np.array([100.0, 300.0]),
+        "elbow": 175.0,
+        "hip_angle": 180.0,
+        "hip_status": "aligned",
+        "top_bar": None,
+        "low_bar": None,
+        "stage": "up",
+        "reps": 0,
+        "score": 0,
+        "award_seq": 0,
+        "last_multiplier": 1.0,
+        "last_award_label": "",
+        "last_award_points": 0,
+    }
+    base.update(overrides)
+    return base
 
 
-class TestDownsampleSeries:
-    def test_empty(self):
-        assert downsample_series([]) == []
+class TestWorkoutSession:
+    def test_starts_idle(self):
+        s = WorkoutSession(model=object())
+        assert s.get_status()["phase"] == "idle"
+        assert s.get_status()["running"] is False
 
-    def test_shorter_than_max_points(self):
-        history = [
-            {"t": 10.0, "reps": 0, "elbow": 90.0},
-            {"t": 11.0, "reps": 1, "elbow": 160.0},
-        ]
-        series = downsample_series(history, max_points=300)
-        assert len(series) == 2
-        assert series[0]["t"] == 0.0
-        assert series[1]["t"] == 1.0
-        assert series[1]["reps"] == 1
+    def test_calibrating_to_ready_to_active(self):
+        s = WorkoutSession(model=object())
+        s.running = True
+        s.phase = "calibrating"
+        s.apply_metrics(_metrics(top_bar=None, low_bar=None))
+        assert s.phase == "calibrating"
 
-    def test_longer_keeps_first_and_last(self):
-        history = [{"t": float(i), "reps": i} for i in range(1000)]
-        series = downsample_series(history, max_points=50)
-        assert len(series) <= 50
-        assert series[0]["t"] == 0.0
-        assert series[0]["reps"] == 0
-        assert series[-1]["reps"] == 999
+        s.apply_metrics(_metrics(top_bar=100.0, low_bar=300.0))
+        assert s.phase == "ready"
+        assert s.get_status()["phase"] == "ready"
+        assert s.get_status()["top_bar"] == 100.0
 
-    def test_missing_t_values(self):
-        history = [{"reps": 0}, {"t": None, "reps": 1}, {"t": 5.0, "reps": 2}]
-        series = downsample_series(history, max_points=10)
-        assert len(series) == 3
-        assert series[0]["t"] == 0.0
+        s.go()
+        assert s.phase == "active"
+        assert s.get_status()["phase"] == "active"
+        assert s.get_status()["reps"] == 0
+        assert s.tracker.reps == 0
 
+    def test_go_ignored_until_ready(self):
+        s = WorkoutSession(model=object())
+        s.phase = "calibrating"
+        s.go()
+        assert s.phase == "calibrating"
 
-# =============================================================================
-# file_ready
-# =============================================================================
+    def test_stop_returns_summary(self):
+        s = WorkoutSession(model=object())
+        s.running = True
+        s.phase = "active"
+        s.tracker.reps = 4
+        s.tracker.score = 350
+        s.tracker.y0_hits = 2
+        s.tracker.y1_hits = 3
+        s.tracker.posture_good = 4
+        s.tracker.posture_bad = 1
+        summary = s.stop()
+        assert summary["reps"] == 4
+        assert summary["score"] == 350
+        assert summary["y0_hits"] == 2
+        assert summary["y1_hits"] == 3
+        assert summary["posture_good"] == 4
+        assert summary["posture_bad"] == 1
+        assert s.phase == "idle"
+        assert s.get_status()["running"] is False
 
+    def test_go_zeros_score(self):
+        s = WorkoutSession(model=object())
+        s.running = True
+        s.phase = "ready"
+        s.tracker.top_bar = 100.0
+        s.tracker.low_bar = 300.0
+        s.tracker.score = 150
+        s.tracker.award_seq = 3
+        s.apply_metrics(
+            _metrics(
+                top_bar=100.0,
+                low_bar=300.0,
+                score=150,
+                award_seq=3,
+                last_multiplier=2.0,
+                last_award_label="full depth",
+                last_award_points=200,
+            )
+        )
+        s.go()
+        assert s.get_status()["score"] == 0
+        assert s.tracker.score == 0
+        assert s.get_status()["award_seq"] == 0
+        assert s.get_status()["last_multiplier"] == 1.0
 
-class TestFileReady:
-    def test_missing_path(self):
-        assert file_ready(None) is False
-        assert file_ready("") is False
-        assert file_ready("does_not_exist_xyz.mp4") is False
+    def test_apply_metrics_passes_award_fields(self):
+        s = WorkoutSession(model=object())
+        s.running = True
+        s.phase = "active"
+        s.apply_metrics(
+            _metrics(
+                award_seq=2,
+                last_multiplier=1.5,
+                last_award_label="deep",
+                last_award_points=150,
+            )
+        )
+        status = s.get_status()
+        assert status["award_seq"] == 2
+        assert status["last_multiplier"] == 1.5
+        assert status["last_award_label"] == "deep"
+        assert status["last_award_points"] == 150
 
-    def test_empty_file(self, tmp_path: Path):
-        empty = tmp_path / "empty.mp4"
-        empty.write_bytes(b"")
-        assert file_ready(str(empty)) is False
+    def test_video_pauses_on_ready(self):
+        s = WorkoutSession(model=object())
+        s._source = "video"
+        s.phase = "ready"
+        assert s._should_advance() is False
 
-    def test_real_file(self, tmp_path: Path):
-        real = tmp_path / "clip.mp4"
-        real.write_bytes(b"data")
-        assert file_ready(str(real)) is True
+    def test_webcam_does_not_pause_on_ready(self):
+        s = WorkoutSession(model=object())
+        s._source = "webcam"
+        s.phase = "ready"
+        assert s._should_advance() is True
 
+    def test_video_resumes_after_go(self):
+        s = WorkoutSession(model=object())
+        s._source = "video"
+        s.running = True
+        s.phase = "ready"
+        s.go()
+        assert s.phase == "active"
+        assert s._should_advance() is True
 
-# =============================================================================
-# playback_path
-# =============================================================================
+    def test_restart_while_running_keeps_video_source(self):
+        class FakeCap:
+            def read(self):
+                return False, None
 
+            def release(self):
+                pass
 
-class TestPlaybackPath:
-    def test_none_when_nothing_exists(self):
-        session = WorkoutSession()
-        assert session.playback_path() is None
-
-    def test_prefers_finished_recording_over_original(self, tmp_path: Path):
-        session = WorkoutSession()
-        original = tmp_path / "original.mp4"
-        recording = tmp_path / "recorded.mp4"
-        original.write_bytes(b"orig")
-        recording.write_bytes(b"rec")
-        session.original_path = str(original)
-        session.record_path = str(recording)
-        session.writer = None  # writer finished
-        assert session.playback_path() == str(recording)
-
-    def test_falls_back_to_original_while_writer_open(self, tmp_path: Path):
-        session = WorkoutSession()
-        original = tmp_path / "original.mp4"
-        recording = tmp_path / "recorded.mp4"
-        original.write_bytes(b"orig")
-        recording.write_bytes(b"rec")
-        session.original_path = str(original)
-        session.record_path = str(recording)
-        session.writer = object()  # still writing
-        assert session.playback_path() == str(original)
-
-
-# =============================================================================
-# summary good/issue counting
-# =============================================================================
-
-
-class TestSummaryCounting:
-    def test_good_and_issue_frames(self):
-        session = WorkoutSession()
-        session.history = [
-            # Real posture readings (status text may still be a phase label)
-            {"status": "ready", "posture_status": "good", "t": 1.0},
-            {"status": "ready", "posture_status": "bad", "t": 2.0},
-            {"status": "calibrating... 50%", "posture_status": "good", "t": 3.0},
-            # Phase / empty posture — must NOT inflate counters
-            {"status": "ready", "posture_status": None, "t": 4.0},
-            {"status": "no person", "posture_status": None, "t": 5.0},
-            {"status": "finished", "posture_status": None, "t": 6.0},
-            {"status": "Hips Too High: 150°", "posture_status": "bad", "t": 7.0},
-        ]
-        result = session.summary()
-        assert result["good_frames"] == 2
-        assert result["issue_frames"] == 2
-        assert result["total_samples"] == 7
-
-
-# =============================================================================
-# Unified payload from pose (session uses the same helper)
-# =============================================================================
-
-
-class TestUnifiedPayload:
-    def test_no_person_and_finished_include_touch_fields(self):
-        tracker = init_tracker(30)
-        for status in ("no person", "finished"):
-            metrics = metrics_from_tracker(tracker, status)
-            assert "touch_y0" in metrics
-            assert "touch_y1" in metrics
-            assert set(metrics.keys()) == {
-                "reps",
-                "stage",
-                "side",
-                "status",
-                "elbow",
-                "eye_height",
-                "speed",
-                "touch_y0",
-                "touch_y1",
-                "posture_angle",
-                "posture_status",
-                "phase",
-                "calib_progress",
-            }
+        s = WorkoutSession(model=object())
+        s.running = True
+        s._source = "video"
+        s._start(FakeCap(), "video")
+        if s._thread is not None:
+            s._thread.join(timeout=2)
+        assert s._source == "video"
+        s.phase = "ready"
+        assert s._should_advance() is False

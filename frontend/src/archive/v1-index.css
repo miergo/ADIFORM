@@ -1,0 +1,261 @@
+/*
+ * First-version styles snapshot (pre-ADIFORM Figma UI).
+ * Archived for documenting the evolution of the software.
+ * Pair with v1-App.jsx. Not imported by the running app.
+ *
+ * Restored from git HEAD: frontend/src/index.css
+ */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background: #fff;
+  color: #111;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 24px 32px;
+}
+
+/* Select screen — gray card, two white buttons */
+.select-card {
+  width: min(920px, 92vw);
+  height: min(520px, 70vh);
+  background: #d9d9d9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+}
+
+.select-card h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.select-actions {
+  display: flex;
+  gap: 80px;
+}
+
+.outline-btn {
+  background: #fff;
+  border: 1px solid #111;
+  min-width: 160px;
+  padding: 14px 28px;
+  font-size: 18px;
+}
+
+.outline-btn:hover {
+  background: #f3f3f3;
+}
+
+.hidden-file {
+  display: none;
+}
+
+.error {
+  color: #b00020;
+  margin-top: 16px;
+}
+
+/* Workout screen */
+.workout-page {
+  width: min(1100px, 94vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.workout-page .chart-wrap {
+  width: 100%;
+}
+
+.video-stage {
+  position: relative;
+  width: 100%;
+  background: #d9d9d9;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.video-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #cfcfcf;
+  display: block;
+}
+
+.overlay {
+  position: absolute;
+  top: 16px;
+  background: #d9d9d9;
+  border: none;
+  min-width: 140px;
+  padding: 12px 18px;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.overlay.left {
+  left: 16px;
+}
+
+.overlay.right {
+  right: 16px;
+  max-width: 280px;
+  text-align: left;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.overlay.right h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.overlay.right p {
+  margin: 4px 0;
+}
+
+.finish-btn {
+  margin-top: 28px;
+  background: #d9d9d9;
+  border: none;
+  min-width: 220px;
+  padding: 16px 32px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.finish-btn:hover {
+  background: #c9c9c9;
+}
+
+/* Analytics screen */
+.analytics-page {
+  width: min(1100px, 94vw);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.analytics-btn {
+  align-self: flex-start;
+  background: #d9d9d9;
+  border: none;
+  padding: 16px 28px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.analytics-video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #d9d9d9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.analytics-video img,
+.analytics-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #cfcfcf;
+}
+
+.chart-wrap {
+  width: 100%;
+  background: #ececec;
+  padding: 12px 16px 8px;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 18px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chart-legend .leg.speed {
+  color: #2a7a3a;
+}
+
+.chart-legend .leg.elbow {
+  color: #9b2d9b;
+}
+
+.chart-legend .leg.reps {
+  color: #c45c1a;
+}
+
+.chart-legend .leg.posture {
+  color: #1a6fc4;
+}
+
+.workout-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #f7f7f7;
+}
+
+.workout-chart .axis-label {
+  font-size: 10px;
+}
+
+.hint {
+  margin: 0;
+  color: #444;
+  font-size: 14px;
+}
+
+a.outline-btn {
+  display: inline-block;
+  text-align: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.stats {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 16px;
+}
+
+.back-link {
+  background: none;
+  border: none;
+  text-decoration: underline;
+  padding: 0;
+  font-size: 16px;
+}

@@ -1,378 +1,216 @@
-"""One workout at a time: webcam or uploaded video, analyzed with YOLO pose."""
+"""Live workout session: capture, YOLO, Pushup tracker, clean MJPEG frames."""
 
 from __future__ import annotations
 
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
 
 import cv2
-from numpy.typing import NDArray
-from ultralytics import YOLO
+import numpy as np
 
-from pose import (
-    IDLE_METRICS,
-    Metrics,
-    TrackerState,
-    analyze_frame,
-    init_tracker,
-    metrics_from_tracker,
-    update_calibrate_ankle,
-)
+from pose import Pushup, draw_overlay
 
-BACKEND_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = BACKEND_DIR.parent
-UPLOAD_DIR = BACKEND_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+MODEL_PATH = Path("model/yolo26n-pose.pt")
+JPEG_QUALITY = 80
 
-
-def model_path() -> str:
-    """Prefer a local YOLO weights file; fall back to the package name."""
-    for path in (
-        PROJECT_DIR / "src" / "yolo26n-pose.pt",
-        PROJECT_DIR / "yolo26n-pose.pt",
-    ):
-        if path.exists():
-            return str(path)
-    return "yolo26n-pose.pt"
+IDLE_STATUS = {
+    "running": False,
+    "phase": "idle",
+    "reps": 0,
+    "stage": "up",
+    "score": 0,
+    "detected": False,
+    "top_bar": None,
+    "low_bar": None,
+    "shoulder_y": None,
+    "elbow": None,
+    "hip_angle": None,
+    "hip_status": None,
+    "award_seq": 0,
+    "last_multiplier": 1.0,
+    "last_award_label": "",
+    "last_award_points": 0,
+}
 
 
-def open_camera(source: Any, kind: str) -> cv2.VideoCapture:
-    """Open webcam (kind='webcam') or a video file path."""
-    if kind == "webcam":
-        video_capture = cv2.VideoCapture(int(source), cv2.CAP_DSHOW)
-        video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    else:
-        video_capture = cv2.VideoCapture(str(source))
-    return video_capture
+def _detections(result) -> tuple[np.ndarray | None, np.ndarray | None]:
+    boxes = None
+    keypoints = None
+    if result.boxes is not None and len(result.boxes) > 0:
+        boxes = result.boxes.xyxy.cpu().numpy()
+    if result.keypoints is not None and result.keypoints.data is not None:
+        keypoints = result.keypoints.data.cpu().numpy().astype(np.float64)
+    return boxes, keypoints
 
 
-def video_info(video_capture: cv2.VideoCapture) -> tuple[float, int, int]:
-    """Return (fps, width, height) with safe defaults."""
-    fps = video_capture.get(cv2.CAP_PROP_FPS)
-    if not fps or fps < 1:
-        fps = 30.0
-    width = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
-    height = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
-    return fps, width, height
-
-
-def open_recorder(
-    path: Path,
-    fps: float,
-    size: tuple[int, int],
-) -> Optional[cv2.VideoWriter]:
-    """Try a few codecs until one actually opens."""
-    for codec in ("avc1", "H264", "mp4v"):
-        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*codec), fps, size)
-        if writer.isOpened():
-            return writer
-        writer.release()
-    return None
-
-
-def frame_to_jpeg(frame: NDArray[Any]) -> Optional[bytes]:
-    """Encode a BGR frame as JPEG bytes for the live MJPEG stream."""
-    ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-    if not ok:
-        return None
-    return buffer.tobytes()
-
-
-def file_ready(path: Optional[str]) -> bool:
-    """True when path exists and is a non-empty file."""
-    if not path:
-        return False
-    file_path = Path(path)
-    return file_path.exists() and file_path.stat().st_size > 0
-
-
-def downsample_series(
-    history: list[dict[str, Any]],
-    max_points: int = 300,
-) -> list[dict[str, Any]]:
-    """Downsample history for charts: {t, reps, elbow, speed} relative to start."""
-    if not history:
-        return []
-
-    num_samples = len(history)
-    if num_samples <= max_points:
-        indices = list(range(num_samples))
-    else:
-        # Evenly spaced indices that always include first and last
-        indices = sorted(
-            {
-                int(round(i * (num_samples - 1) / (max_points - 1)))
-                for i in range(max_points)
-            }
-        )
-
-    start_time = history[0].get("t") or 0.0
-    series: list[dict[str, Any]] = []
-    for index in indices:
-        item = history[index]
-        timestamp = item.get("t")
-        series.append(
-            {
-                "t": round(
-                    (timestamp - start_time) if timestamp is not None else 0.0, 2
-                ),
-                "reps": item.get("reps", 0),
-                "elbow": item.get("elbow"),
-                "speed": item.get("speed"),
-                "posture_angle": item.get("posture_angle"),
-                "posture_status": item.get("posture_status"),
-            }
-        )
-    return series
+def _status_from(metrics: dict, phase: str, running: bool) -> dict:
+    shoulder = metrics.get("shoulder")
+    return {
+        "running": running,
+        "phase": phase,
+        "reps": metrics.get("reps", 0),
+        "stage": metrics.get("stage", "up"),
+        "score": metrics.get("score", 0),
+        "detected": bool(metrics.get("detected")),
+        "top_bar": metrics.get("top_bar"),
+        "low_bar": metrics.get("low_bar"),
+        "shoulder_y": None if shoulder is None else float(shoulder[1]),
+        "elbow": metrics.get("elbow"),
+        "hip_angle": metrics.get("hip_angle"),
+        "hip_status": metrics.get("hip_status"),
+        "award_seq": metrics.get("award_seq", 0),
+        "last_multiplier": metrics.get("last_multiplier", 1.0),
+        "last_award_label": metrics.get("last_award_label", ""),
+        "last_award_points": metrics.get("last_award_points", 0),
+    }
 
 
 class WorkoutSession:
-    """
-    One workout at a time.
+    """One in-memory session. Webcam and video share the same phases."""
 
-    Threading model:
-      - The analysis loop runs on a daemon thread (_run_loop).
-      - self.lock guards: tracker, metrics, history, latest_jpeg, and related
-        fields that HTTP handlers read while the loop writes.
-      - self.running is a stop flag (bool); the loop checks it each frame.
-    """
-
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.thread: Optional[threading.Thread] = None
-        self.cap: Optional[cv2.VideoCapture] = None
-        self.writer: Optional[cv2.VideoWriter] = None
-        self.model: Optional[YOLO] = None
-        self.tracker: Optional[TrackerState] = None  # live pose tracker
-
+    def __init__(self, model=None) -> None:
+        self._model = model
+        self._cap = None
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._jpeg: bytes | None = None
+        self._status = dict(IDLE_STATUS)
+        self.tracker = Pushup()
+        self.phase = "idle"
         self.running = False
-        self.error: Optional[str] = None
-        self.source_kind: Optional[str] = None
-        self.original_path: Optional[str] = None
-        self.record_path: Optional[str] = None
-        self.latest_jpeg: Optional[bytes] = None
+        self._source = "idle"
 
-        self.metrics: Metrics = dict(IDLE_METRICS)
-        self.history: list[dict[str, Any]] = []
+    def start_webcam(self, camera_id: int = 0) -> None:
+        cap = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(camera_id)
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open camera {camera_id}")
+        self._start(cap, "webcam")
 
-    def start(self, source: Any, kind: str) -> None:
-        """Stop any previous workout, then start analyzing source on a new thread."""
-        self.stop()
+    def start_video(self, path: Path | str) -> None:
+        cap = cv2.VideoCapture(str(path))
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open video {path}")
+        self._start(cap, "video")
 
-        self.running = True
-        self.error = None
-        self.source_kind = kind
-        self.original_path = str(source) if kind == "video" else None
-        self.record_path = None
-        self.latest_jpeg = None
-        self.tracker = None
-        self.metrics = {**IDLE_METRICS, "status": "starting"}
-        self.history = []
-
-        self.thread = threading.Thread(
-            target=self._run_loop,
-            args=(source, kind),
-            daemon=True,
-        )
-        self.thread.start()
-
-    def stop(self) -> None:
-        """Signal the loop to stop and wait briefly for it to finish."""
+    def stop(self) -> dict:
+        summary = {
+            "reps": self.tracker.reps,
+            "score": self.tracker.score,
+            "y0_hits": self.tracker.y0_hits,
+            "y1_hits": self.tracker.y1_hits,
+            "posture_good": self.tracker.posture_good,
+            "posture_bad": self.tracker.posture_bad,
+            "top_bar": self.tracker.top_bar,
+            "low_bar": self.tracker.low_bar,
+        }
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
         self.running = False
-        if self.thread is not None and self.thread.is_alive():
-            if threading.current_thread() is not self.thread:
-                self.thread.join(timeout=8)
-        self.thread = None
-        with self.lock:
-            self.tracker = None
-        self._close_video()
+        self.phase = "idle"
+        self._source = "idle"
+        with self._lock:
+            self._status = dict(IDLE_STATUS)
+            self._jpeg = None
+        return summary
 
-    def arm(self) -> tuple[bool, Optional[str]]:
-        """Move phase ready → active so rep counting starts. Called by POST /api/go."""
-        with self.lock:
-            tracker = self.tracker
-            if tracker is None:
-                return False, "no active session"
-            if tracker.get("phase") != "ready":
-                return False, f"phase is {tracker.get('phase')!r}, need 'ready'"
-            tracker["phase"] = "active"
-            self.metrics = {
-                **self.metrics,
+    def go(self) -> None:
+        if self.phase != "ready":
+            return
+        self.tracker.reset_reps()
+        self.phase = "active"
+        with self._lock:
+            self._status = {
+                **self._status,
                 "phase": "active",
-                "status": "go",
-            }
-            return True, None
-
-    def snapshot(self) -> dict[str, Any]:
-        """Current metrics + running flag + chart series (for GET /api/status)."""
-        with self.lock:
-            return {
-                **self.metrics,
-                "running": self.running,
-                "error": self.error,
-                "source": self.source_kind,
-                "has_recording": self.playback_path() is not None,
-                "series": downsample_series(self.history, max_points=300),
+                "reps": 0,
+                "stage": "up",
+                "score": 0,
+                "award_seq": 0,
+                "last_multiplier": 1.0,
+                "last_award_label": "",
+                "last_award_points": 0,
             }
 
-    def summary(self) -> dict[str, Any]:
-        """End-of-workout counts of good vs issue frames (for GET /api/summary).
+    def get_status(self) -> dict:
+        with self._lock:
+            return dict(self._status)
 
-        Uses posture_status from each history sample ("good" / "bad"), not the
-        overloaded status string (which mixes phase labels like "ready" / "finished").
-        Frames with no posture reading (None / missing) are ignored.
-        """
-        with self.lock:
-            good_frames = 0
-            issue_frames = 0
-            for item in self.history:
-                posture = item.get("posture_status")
-                if posture == "good":
-                    good_frames += 1
-                elif posture == "bad":
-                    issue_frames += 1
-            return {
-                **self.metrics,
-                "good_frames": good_frames,
-                "issue_frames": issue_frames,
-                "total_samples": len(self.history),
-                "source": self.source_kind,
-                "has_recording": self.playback_path() is not None,
-                "series": downsample_series(self.history, max_points=300),
-            }
+    def get_frame(self) -> bytes | None:
+        with self._lock:
+            return self._jpeg
 
-    def history_series(self, max_points: int = 300) -> list[dict[str, Any]]:
-        """Downsampled chart points only."""
-        with self.lock:
-            return downsample_series(self.history, max_points=max_points)
-
-    def playback_path(self) -> Optional[str]:
-        """Prefer the processed recording once the writer has finished."""
-        if file_ready(self.record_path) and self.writer is None:
-            return self.record_path
-        if file_ready(self.original_path):
-            return self.original_path
-        return None
-
-    def _close_video(self) -> None:
-        if self.writer is not None:
-            self.writer.release()
-            self.writer = None
-        if self.cap is not None:
-            self.cap.release()
-            self.cap = None
-
-    def _publish(self, metrics: Metrics, running: bool = True) -> None:
-        """Update shared metrics/history under the lock."""
-        with self.lock:
-            self.metrics = dict(metrics)
-            self.running = running
-            self.history.append({**metrics, "t": time.time()})
-            if len(self.history) > 2000:
-                self.history = self.history[-1500:]
-
-    def _save_preview(self, frame: NDArray[Any]) -> None:
-        jpeg = frame_to_jpeg(frame)
-        if jpeg is None:
-            return
-        with self.lock:
-            self.latest_jpeg = jpeg
-
-    def _run_loop(self, source: Any, kind: str) -> None:
-        try:
-            self._analyze_video(source, kind)
-        except Exception as exc:
-            self.error = str(exc)
-            self._publish(
-                {**self.metrics, "status": f"error: {exc}"},
-                running=False,
+    def apply_metrics(self, metrics: dict, frame: np.ndarray | None = None) -> None:
+        """Advance phase from tracker output. Used by the worker and tests."""
+        if self.phase == "calibrating" and metrics.get("top_bar") is not None:
+            self.phase = "ready"
+        status = _status_from(metrics, self.phase, self.running)
+        jpeg = None
+        if frame is not None:
+            ok, buf = cv2.imencode(
+                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
             )
-        finally:
-            self._close_video()
-            self.running = False
+            if ok:
+                jpeg = buf.tobytes()
+        with self._lock:
+            self._status = status
+            if jpeg is not None:
+                self._jpeg = jpeg
 
-    def _analyze_video(self, source: Any, kind: str) -> None:
-        if self.model is None:
-            self.model = YOLO(model_path())
-
-        video_capture = open_camera(source, kind)
-        if not video_capture.isOpened():
-            self.error = f"Could not open {source}"
-            self._publish(
-                {**IDLE_METRICS, "status": "could not open source"},
-                running=False,
+    def _start(self, cap, source: str) -> None:
+        if self.running:
+            self.stop()
+        self._source = source
+        self._ensure_model()
+        self._cap = cap
+        self.tracker = Pushup()
+        self.phase = "calibrating"
+        self.running = True
+        self._stop.clear()
+        with self._lock:
+            self._status = _status_from(
+                self.tracker.update(None, None), self.phase, True
             )
-            return
+            self._jpeg = None
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
 
-        self.cap = video_capture
-        fps, width, height = video_info(video_capture)
+    def _ensure_model(self) -> None:
+        if self._model is None:
+            from ultralytics import YOLO
 
-        filename = "webcam_temp.mp4" if kind == "webcam" else "upload_replay.mp4"
-        record_path = UPLOAD_DIR / filename
-        writer = open_recorder(record_path, fps, (width, height))
-        self.writer = writer
-        self.record_path = str(record_path) if writer is not None else None
+            self._model = YOLO(str(MODEL_PATH))
 
-        tracker = init_tracker(
-            fps,
-            calib_mode="auto" if kind == "video" else "hold",
-        )
-        with self.lock:
-            self.tracker = tracker
-        next_frame_at = time.perf_counter()
-        frame_gap = 1.0 / fps
+    def _should_advance(self) -> bool:
+        """Return False while uploaded video is paused for the countdown."""
+        return not (self._source == "video" and self.phase == "ready")
 
-        while self.running:
-            ok, frame = video_capture.read()
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            if not self._should_advance():
+                time.sleep(0.03)
+                continue
+            ok, frame = self._cap.read()
             if not ok:
-                self._publish(
-                    metrics_from_tracker(tracker, "finished"),
-                    running=False,
-                )
+                self.running = False
+                with self._lock:
+                    self._status = {**self._status, "running": False, "phase": self.phase}
                 break
-
-            metrics = self._analyze_frame(frame, tracker)
-            self._publish(metrics, running=True)
-            self._save_preview(frame)
-            self._write_frame(writer, frame, width, height)
-
-            if kind != "webcam":
-                next_frame_at += frame_gap
-                wait = next_frame_at - time.perf_counter()
-                if wait > 0:
-                    time.sleep(wait)
-
-    def _analyze_frame(
-        self,
-        frame: NDArray[Any],
-        tracker: TrackerState,
-    ) -> Metrics:
-        """Run YOLO, then pose analysis. Updates tracker in place."""
-        result = self.model.track(frame, persist=True, verbose=False)[0]
-        has_person = result.keypoints is not None and len(result.keypoints.data) > 0
-        if not has_person:
-            tracker["zi"] = None
-            tracker["prev_h"] = None
-            # Hard-reset hold if we were still calibrating
-            if tracker.get("phase") == "calibrating":
-                update_calibrate_ankle(tracker, None, None, None)
-            return metrics_from_tracker(tracker, "no person")
-
-        keypoints = result.keypoints.data.cpu().numpy()[0].astype(float)
-        return analyze_frame(frame, keypoints, tracker)
-
-    def _write_frame(
-        self,
-        writer: Optional[cv2.VideoWriter],
-        frame: NDArray[Any],
-        width: int,
-        height: int,
-    ) -> None:
-        if writer is None:
-            return
-        if frame.shape[1] != width or frame.shape[0] != height:
-            frame = cv2.resize(frame, (width, height))
-        writer.write(frame)
+            result = self._model.predict(frame, verbose=False)[0]
+            boxes, keypoints = _detections(result)
+            metrics = self.tracker.update(boxes, keypoints)
+            if self._source == "video":
+                draw_overlay(frame, metrics)
+            self.apply_metrics(metrics, frame)
+            time.sleep(0.001)
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
