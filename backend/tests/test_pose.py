@@ -17,6 +17,17 @@ from pose import (
     stroke_points,
 )
 
+# Spike / confidence thresholds used by jitter assertions.
+# pose.py does not export these yet; keep literals aligned with the plan.
+try:
+    from pose import CONF_MIN, JUMP_PX
+except ImportError:  # pragma: no cover - current minimal pose.py
+    JUMP_PX = 50.0
+    CONF_MIN = 0.3
+
+_BOXES = np.array([[0, 0, 200, 400]], dtype=np.float64)
+_JITTER_JOINTS = (5, 11, 13, 15)  # shoulder, hip, knee, ankle
+
 
 def _blank_keypoints() -> np.ndarray:
     """One person, 17 joints, all zero confidence."""
@@ -77,6 +88,64 @@ def _left_partial_down_pose(kpts: np.ndarray, shoulder_y: float) -> None:
     _set_joint(kpts, 15, 100, 300)
 
 
+def _jitter(
+    kpts: np.ndarray,
+    rng: np.random.Generator,
+    sigma_px: float,
+    joint_idxs,
+    *,
+    conf: float | None = None,
+) -> None:
+    """Add Gaussian noise to xy of listed joints; keep conf unless overridden."""
+    noise = rng.normal(0.0, sigma_px, size=(len(joint_idxs), 2))
+    for n, idx in enumerate(joint_idxs):
+        kpts[0, idx, 0] += noise[n, 0]
+        kpts[0, idx, 1] += noise[n, 1]
+        if conf is not None:
+            kpts[0, idx, 2] = conf
+
+
+def _sitting_shoulder_bounce(kpts: np.ndarray, shoulder_y: float) -> None:
+    """
+    Sitting stick figure with bent hip/knee; only shoulder_y varies for bounce.
+
+    After calib from _left_up_pose (top_bar=100, low_bar=300), shoulder_y near
+    those bars can cross locked up/down bands while hips stay up (not a plank).
+    """
+    _set_joint(kpts, 5, 100, shoulder_y)   # shoulder (bounces)
+    _set_joint(kpts, 7, 130, shoulder_y + 15)
+    _set_joint(kpts, 9, 150, shoulder_y + 30)
+    _set_joint(kpts, 11, 180, 160)         # hip forward / raised
+    _set_joint(kpts, 13, 240, 180)         # knee bent ~90 deg
+    _set_joint(kpts, 15, 200, 300)         # ankle near floor / low bar
+
+
+def _calibrate(tracker: Pushup, boxes: np.ndarray | None = None) -> dict:
+    """Lock bars from a clean left up plank."""
+    if boxes is None:
+        boxes = _BOXES
+    kpts = _blank_keypoints()
+    _left_up_pose(kpts)
+    return tracker.update(boxes, kpts)
+
+
+def _hold(
+    tracker: Pushup,
+    fill_pose,
+    n: int = 1,
+    boxes: np.ndarray | None = None,
+) -> dict:
+    """Apply fill_pose to blank keypoints and update tracker n times."""
+    if boxes is None:
+        boxes = _BOXES
+    out: dict = {}
+    for _ in range(n):
+        kpts = _blank_keypoints()
+        fill_pose(kpts)
+        out = tracker.update(boxes, kpts)
+    return out
+
+
 class TestClosestPerson:
     def test_picks_largest_box(self):
         boxes = np.array(
@@ -129,8 +198,8 @@ class TestPoses:
         assert is_ready_pose(200, 100, 300, 175.0, 179.0, 179.0) is False
         assert is_ready_pose(100, 200, 90, 175.0, 179.0, 179.0) is False  # ankle above shoulder
         assert is_ready_pose(100, 200, 300, 140.0, 179.0, 179.0) is False  # elbow too bent
-        assert is_ready_pose(100, 200, 300, 175.0, 174.0, 179.0) is False  # body not straight
-        assert is_ready_pose(100, 200, 300, 175.0, 179.0, 174.0) is False  # knee bent
+        assert is_ready_pose(100, 200, 300, 175.0, 164.0, 179.0) is False  # body not straight (≤180-BODY_ALIGN_TOL)
+        assert is_ready_pose(100, 200, 300, 175.0, 179.0, 154.0) is False  # knee bent (≤180-KNEE_ANGLE_TOL)
         assert is_ready_pose(100, 200, 300, 175.0, None, 179.0) is False
         assert is_ready_pose(100, 200, 300, 175.0, 179.0, None) is False
 
@@ -387,3 +456,120 @@ class TestPushup:
         out = tracker.update(boxes, kpts)
         assert out["detected"] is True
         assert out["top_bar"] == 100.0
+
+
+class TestJitterScoring:
+    """Seeded YOLO-jitter / cheat probes against CURRENT scoring (no pose.py changes)."""
+
+    def test_noisy_full_rep_still_scores(self):
+        """σ~3–5 px on shoulder/hip/knee/ankle; good rep + awards still land."""
+        tracker = Pushup()
+        boxes = _BOXES
+        rng = np.random.default_rng(42)
+        sigma = 4.0
+
+        out = _calibrate(tracker, boxes)
+        assert out["top_bar"] == 100.0
+        assert out["low_bar"] == 300.0
+
+        # up → down with noise on each frame
+        for _ in range(3):
+            kpts = _blank_keypoints()
+            _left_down_pose(kpts)
+            _jitter(kpts, rng, sigma, _JITTER_JOINTS)
+            tracker.update(boxes, kpts)
+        assert tracker.stage == "down"
+        assert tracker.score > 0
+
+        # down → up with noise
+        for _ in range(3):
+            kpts = _blank_keypoints()
+            _left_up_pose(kpts)
+            _jitter(kpts, rng, sigma, _JITTER_JOINTS)
+            tracker.update(boxes, kpts)
+
+        assert tracker.reps == 1
+        assert tracker.score > 0
+        assert tracker.y0_hits >= 1
+        assert tracker.y1_hits >= 1
+
+    def test_sit_and_bounce_scores(self):
+        """After plank calib, sitting shoulder bounce still increases score/reps (cheat)."""
+        tracker = Pushup()
+        boxes = _BOXES
+        rng = np.random.default_rng(7)
+
+        out = _calibrate(tracker, boxes)
+        assert out["top_bar"] == 100.0
+        assert out["low_bar"] == 300.0
+        score0, reps0 = tracker.score, tracker.reps
+
+        # Clean bounce: near-top → near-low → near-top
+        for shoulder_y in (110.0, 290.0, 110.0):
+            kpts = _blank_keypoints()
+            _sitting_shoulder_bounce(kpts, shoulder_y)
+            tracker.update(boxes, kpts)
+
+        assert tracker.score > score0 or tracker.reps > reps0
+        score_clean, reps_clean = tracker.score, tracker.reps
+
+        # Mild noise bounce (another rep while still sitting)
+        for shoulder_y in (110.0, 290.0, 110.0):
+            kpts = _blank_keypoints()
+            _sitting_shoulder_bounce(kpts, shoulder_y)
+            # Mild noise on lower body; keep shoulder Y exact for band hits
+            _jitter(kpts, rng, 2.0, (11, 13, 15))
+            tracker.update(boxes, kpts)
+
+        assert tracker.score > score_clean or tracker.reps > reps_clean
+        assert tracker.reps >= 1
+        assert tracker.score > 0
+
+    def test_one_frame_knee_spike_still_completes(self):
+        """Mid-rep one-frame knee offset > JUMP_PX; good rep still completes."""
+        tracker = Pushup()
+        boxes = _BOXES
+
+        _calibrate(tracker, boxes)
+
+        # Mid-way down
+        kpts = _blank_keypoints()
+        _left_partial_down_pose(kpts, 200.0)
+        tracker.update(boxes, kpts)
+
+        # One-frame knee spike larger than JUMP_PX
+        kpts = _blank_keypoints()
+        _left_partial_down_pose(kpts, 220.0)
+        kpts[0, 13, 0] += JUMP_PX + 15.0
+        tracker.update(boxes, kpts)
+
+        # Finish the good rep
+        _hold(tracker, _left_down_pose, n=1, boxes=boxes)
+        assert tracker.stage == "down"
+        _hold(tracker, _left_up_pose, n=1, boxes=boxes)
+
+        assert tracker.reps == 1
+        assert tracker.score > 0
+
+    def test_low_conf_knee_freeze_sit_bounce_still_scores(self):
+        """
+        After plank calib, sit-bounce with knee conf < CONF_MIN still scores today.
+
+        Documents fragility of a future knee-only gate that freezes last high-conf
+        (plank) knee when conf drops below CONF_MIN — smoothed knee would stay
+        plank-like while shoulder bounce still awards points.
+        """
+        tracker = Pushup()
+        boxes = _BOXES
+
+        _calibrate(tracker, boxes)
+        score0 = tracker.score
+
+        for shoulder_y in (110.0, 290.0, 110.0):
+            kpts = _blank_keypoints()
+            _sitting_shoulder_bounce(kpts, shoulder_y)
+            kpts[0, 13, 2] = CONF_MIN - 0.05  # below gate threshold
+            tracker.update(boxes, kpts)
+
+        assert tracker.score > score0
+        assert tracker.reps >= 1
