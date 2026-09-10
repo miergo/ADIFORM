@@ -1,13 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import WebCamSessionEnded from "../components/WebCamSessionEnded.jsx";
+import { playSfx, stopSfx } from "../sounds.js";
 
 export default function WebcamSessionEndedPage({
   layoutPreview = false,
   summary = {},
   onHome,
-  onView,
+  onMode,
+  onRetry,
 }) {
   const [playKey, setPlayKey] = useState(0);
+
+  useEffect(() => {
+    const sound = playSfx("score");
+    return () => stopSfx(sound);
+  }, [playKey]);
 
   return (
     <div className="landing-page">
@@ -19,8 +26,8 @@ export default function WebcamSessionEndedPage({
             </div>
             <div className="landing-bg-bar" />
           </div>
-          {layoutPreview ? (
-            <div className="layout-preview-bar">
+          <div className="layout-preview-bar">
+            {layoutPreview ? (
               <button
                 className="layout-preview-btn"
                 type="button"
@@ -28,27 +35,39 @@ export default function WebcamSessionEndedPage({
               >
                 PLAY
               </button>
-              {onHome ? (
-                <button
-                  className="layout-preview-btn"
-                  type="button"
-                  onClick={onHome}
-                >
-                  HOME
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+            {onHome ? (
+              <button
+                className="layout-preview-btn"
+                type="button"
+                onClick={onHome}
+              >
+                HOME
+              </button>
+            ) : null}
+          </div>
           <div className="ended-page-slot">
             <WebCamSessionEnded
               key={playKey}
-              onHome={onHome}
-              onView={onView}
+              onMode={onMode}
+              onRetry={onRetry}
               y0Hits={layoutPreview ? 8 : (summary.y0_hits ?? 0)}
               y1Hits={layoutPreview ? 7 : (summary.y1_hits ?? 0)}
               good={layoutPreview ? 12 : (summary.posture_good ?? 0)}
               bad={layoutPreview ? 3 : (summary.posture_bad ?? 0)}
               total={layoutPreview ? 1840 : (summary.score ?? 0)}
+              prevBest={layoutPreview ? 2100 : (summary.prevBest ?? null)}
+              isNewBest={layoutPreview ? false : Boolean(summary.isNewBest)}
+              awards={
+                layoutPreview
+                  ? [
+                      { mult: 2, label: "full depth", points: 200 },
+                      { mult: 1.85, label: "deep", points: 185 },
+                      { mult: 1, label: "hit", points: 100 },
+                      { mult: 1, label: "miss", points: 25 },
+                    ]
+                  : (summary.awards ?? [])
+              }
             />
           </div>
           <div className="rules-page-wordmark">

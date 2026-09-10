@@ -34,14 +34,19 @@ IDLE_STATUS = {
 }
 
 
-def _detections(result) -> tuple[np.ndarray | None, np.ndarray | None]:
+def _detections(
+    result,
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
     boxes = None
     keypoints = None
+    ids = None
     if result.boxes is not None and len(result.boxes) > 0:
         boxes = result.boxes.xyxy.cpu().numpy()
+        if result.boxes.id is not None:
+            ids = result.boxes.id.cpu().numpy().astype(np.int64)
     if result.keypoints is not None and result.keypoints.data is not None:
         keypoints = result.keypoints.data.cpu().numpy().astype(np.float64)
-    return boxes, keypoints
+    return boxes, keypoints, ids
 
 
 def _status_from(metrics: dict, phase: str, running: bool) -> dict:
@@ -170,6 +175,9 @@ class WorkoutSession:
             self.stop()
         self._source = source
         self._ensure_model()
+        # Clear Ultralytics track persist so a new session gets fresh ids.
+        if hasattr(self._model, "predictor"):
+            self._model.predictor = None
         self._cap = cap
         self.tracker = Pushup()
         self.phase = "calibrating"
@@ -204,11 +212,10 @@ class WorkoutSession:
                 with self._lock:
                     self._status = {**self._status, "running": False, "phase": self.phase}
                 break
-            result = self._model.predict(frame, verbose=False)[0]
-            boxes, keypoints = _detections(result)
-            metrics = self.tracker.update(boxes, keypoints)
-            if self._source == "video":
-                draw_overlay(frame, metrics)
+            result = self._model.track(frame, persist=True, verbose=False)[0]
+            boxes, keypoints, ids = _detections(result)
+            metrics = self.tracker.update(boxes, keypoints, ids)
+            draw_overlay(frame, metrics)
             self.apply_metrics(metrics, frame)
             time.sleep(0.001)
         if self._cap is not None:

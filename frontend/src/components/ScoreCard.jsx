@@ -4,6 +4,10 @@ function pad4(value) {
   return `${sign}${String(Math.abs(n)).padStart(4, "0")}`;
 }
 
+function countAwards(awards, label) {
+  return awards.filter((a) => a.label === label).length;
+}
+
 export default function ScoreCard({
   open = false,
   y0Hits = 0,
@@ -11,10 +15,19 @@ export default function ScoreCard({
   good = 0,
   bad = 0,
   total = 0,
+  awards = [],
+  prevBest = null,
+  isNewBest = false,
 }) {
   if (!open) {
     return <div className="score-card score-card--closed" />;
   }
+
+  const full = countAwards(awards, "full depth");
+  const deep = countAwards(awards, "deep");
+  const base = countAwards(awards, "hit");
+  const miss = countAwards(awards, "miss");
+  const showBest = prevBest != null && !isNewBest;
 
   return (
     <div className="score-card score-card--open">
@@ -26,11 +39,11 @@ export default function ScoreCard({
           <div className="score-block">
             <p className="score-block-label">REPS</p>
             <div className="score-row">
-              <span>Y0 HITS</span>
+              <span>UP</span>
               <span>{pad4(y0Hits)}</span>
             </div>
             <div className="score-row">
-              <span>Y1 HITS</span>
+              <span>DOWN</span>
               <span>{pad4(y1Hits)}</span>
             </div>
           </div>
@@ -50,6 +63,12 @@ export default function ScoreCard({
               <span>TOTAL</span>
               <span>{pad4(total)}</span>
             </div>
+            {showBest ? (
+              <div className="score-row">
+                <span>BEST</span>
+                <span>{pad4(prevBest)}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

@@ -24,8 +24,8 @@ from pose import (
     pt,
 )
 
-INPUT_VIDEO = Path("uploads/8435261-uhd_4096_2160_25fps.mp4")
-OUTPUT_DIR = Path("uploads/test_preview4")
+INPUT_VIDEO = Path("sample_videos/pushup1.mp4")
+OUTPUT_DIR = Path("uploads/test_preview_1")
 MODEL_PATH = Path("model/yolo26n-pose.pt")
 
 _PREVIEW_RE = re.compile(r"^pushup_test_(\d+)_preview\.mp4$")

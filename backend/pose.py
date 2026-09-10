@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import cv2
@@ -13,13 +14,19 @@ RIGHT = {"shoulder": 6, "elbow": 8, "wrist": 10, "hip": 12, "knee": 14, "ankle":
 
 SIDES = {"left": LEFT, "right": RIGHT}
 
-UP_ELBOW_TOL = 30.0  # tolerance from 145.0 degrees for up position
+UP_ELBOW_TOL = 35.0  # tolerance from 145.0 degrees for up position
 # UP_ELBOW_DEG = 145.0
 UP_BAR_TOL = 0.15  # fraction of locked bar range (shoulder near top bar)
 DOWN_BAR_TOL = 0.35  # fraction of locked bar range (shoulder near low bar)
-BODY_ALIGN_TOL = 15.0  # degrees from 180 at hip (shoulder-hip-ankle)
-KNEE_ANGLE_TOL = 25.0  # degrees from 160 at knee (hip-knee-ankle)
+BODY_ALIGN_TOL = 25.0  # degrees from 180 at hip (shoulder-hip-ankle)
+KNEE_ANGLE_TOL = 30.0  # degrees from 160 at knee (hip-knee-ankle)
 MISS_TRAVEL_FRAC = 0.4  # min travel along bar range before a miss can resolve
+CALIB_HOLD_SEC = 1.5  # continuous ready plank before locking bars
+EMA_ALPHA = 0.4  # joint smoothing: smoothed = (1-a)*prev + a*raw
+CONF_MIN = 0.3  # hold previous xy when joint confidence is below this
+JUMP_PX = 50.0  # snap to raw when a joint jumps farther than this
+IOU_REACQUIRE = 0.3  # min IoU vs last box to adopt a new track id
+JOINT_KEYS = ("shoulder", "elbow", "wrist", "hip", "knee", "ankle")
 
 
 def stroke_points(hit: bool, good: bool) -> int:
@@ -50,6 +57,35 @@ def closest_person(boxes: np.ndarray | None) -> int | None:
     return int(np.argmax(areas))
 
 
+def box_iou(a: np.ndarray, b: np.ndarray) -> float:
+    """IoU of two xyxy boxes."""
+    x1 = max(float(a[0]), float(b[0]))
+    y1 = max(float(a[1]), float(b[1]))
+    x2 = min(float(a[2]), float(b[2]))
+    y2 = min(float(a[3]), float(b[3]))
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    if inter <= 0.0:
+        return 0.0
+    area_a = max(0.0, float(a[2] - a[0])) * max(0.0, float(a[3] - a[1]))
+    area_b = max(0.0, float(b[2] - b[0])) * max(0.0, float(b[3] - b[1]))
+    union = area_a + area_b - inter
+    if union <= 0.0:
+        return 0.0
+    return inter / union
+
+
+def best_iou_index(boxes: np.ndarray, ref: np.ndarray) -> tuple[int, float]:
+    """Return (index, iou) of the box with highest IoU vs ref."""
+    best_i = 0
+    best_iou = -1.0
+    for i in range(len(boxes)):
+        iou = box_iou(ref, boxes[i])
+        if iou > best_iou:
+            best_iou = iou
+            best_i = i
+    return best_i, best_iou
+
+
 def pick_side(kpts: np.ndarray) -> str:
     """Pick left or right side by mean confidence of the six joints."""
 
@@ -71,6 +107,11 @@ def joint_angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float | None:
     return float(np.degrees(np.arccos(cos)))
 
 
+def legs_extended(knee_angle: float | None) -> bool:
+    """Straight-enough leg for full push-ups (same threshold as ready pose)."""
+    return knee_angle is not None and knee_angle >= 180.0 - KNEE_ANGLE_TOL
+
+
 def is_ready_pose(
     shoulder_y: float,
     hip_y: float,
@@ -90,9 +131,7 @@ def is_ready_pose(
         return False
     if body_angle <= 180.0 - BODY_ALIGN_TOL:
         return False
-    if knee_angle is None:
-        return False
-    return knee_angle >= 180.0 - KNEE_ANGLE_TOL
+    return legs_extended(knee_angle)
 
 
 def is_up_pose(
@@ -184,7 +223,7 @@ def pt(xy) -> tuple[int, int]:
 
 
 def draw_overlay(frame: np.ndarray, out: dict) -> None:
-    """Draw joints, posture triangle, bars, and HUD."""
+    """Draw joints, posture triangle, and bars."""
     if out["detected"]:
         wrist = out["wrist"]
         elbow = out["elbow_point"]
@@ -230,42 +269,6 @@ def draw_overlay(frame: np.ndarray, out: dict) -> None:
         y = int(out["low_bar"])
         cv2.line(frame, (0, y), (w, y), (0, 0, 255), 2)
 
-    elbow_txt = f"{out['elbow']:.0f}" if out["elbow"] is not None else "--"
-    hip_angle_txt = (
-        f"{out['hip_angle']:.0f}" if out.get("hip_angle") is not None else "--"
-    )
-    hip_status_txt = out.get("hip_status") or "--"
-    cv2.putText(
-        frame,
-        f"REPS: {out['reps']}  stage: {out['stage']}  elbow: {elbow_txt}",
-        (20, 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        1.0,
-        (0, 255, 255),
-        2,
-    )
-    cv2.putText(
-        frame,
-        f"hip: {hip_status_txt}  angle: {hip_angle_txt}",
-        (20, 80),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.9,
-        (0, 255, 255),
-        2,
-    )
-    knee_angle_txt = (
-        f"{out['knee_angle']:.0f}" if out.get("knee_angle") is not None else "--"
-    )
-    cv2.putText(
-        frame,
-        f"knee: {knee_angle_txt}",
-        (20, 120),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.9,
-        (0, 255, 255),
-        2,
-    )
-
 
 def _empty_result(reps: int = 0, stage: str = "up", score: int = 0) -> dict:
     return {
@@ -307,6 +310,11 @@ class Pushup:
         self.last_multiplier: float = 1.0
         self.last_award_label: str = ""
         self.last_award_points: int = 0
+        self._calib_since: float | None = None
+        self._locked_id: int | None = None
+        self._locked_box: np.ndarray | None = None
+        self._side: str | None = None
+        self._smooth: dict[str, np.ndarray] = {}
         self.hip = HipPosture()
 
     def reset_reps(self) -> None:
@@ -324,6 +332,70 @@ class Pushup:
         self.last_multiplier = 1.0
         self.last_award_label = ""
         self.last_award_points = 0
+
+    def _select_person(
+        self,
+        boxes: np.ndarray,
+        ids: np.ndarray | None,
+    ) -> int | None:
+        """Sticky person: lock track id, re-acquire via IoU if id is renumbered."""
+        if len(boxes) == 0:
+            return None
+
+        use_ids = ids is not None and len(ids) == len(boxes)
+
+        if not use_ids:
+            if self._locked_box is not None:
+                idx, iou = best_iou_index(boxes, self._locked_box)
+                if iou < IOU_REACQUIRE:
+                    idx = closest_person(boxes)
+            else:
+                idx = closest_person(boxes)
+            if idx is None:
+                return None
+            self._locked_box = boxes[idx].astype(np.float64).copy()
+            return idx
+
+        if self._locked_id is None:
+            idx = closest_person(boxes)
+            if idx is None:
+                return None
+            self._locked_id = int(ids[idx])
+            self._locked_box = boxes[idx].astype(np.float64).copy()
+            return idx
+
+        matches = np.where(ids == self._locked_id)[0]
+        if len(matches) > 0:
+            idx = int(matches[0])
+            self._locked_box = boxes[idx].astype(np.float64).copy()
+            return idx
+
+        # Id gone: re-acquire only if a box still overlaps the last known person.
+        if self._locked_box is None:
+            return None
+        idx, iou = best_iou_index(boxes, self._locked_box)
+        if iou < IOU_REACQUIRE:
+            return None
+        self._locked_id = int(ids[idx])
+        self._locked_box = boxes[idx].astype(np.float64).copy()
+        return idx
+
+    def _smooth_joint(self, key: str, raw: np.ndarray) -> np.ndarray:
+        """EMA on xy; hold previous when confidence is low; snap on large jumps."""
+        xy = raw[:2].astype(np.float64)
+        conf = float(raw[2]) if raw.shape[0] > 2 else 1.0
+        prev = self._smooth.get(key)
+        if prev is None:
+            self._smooth[key] = xy.copy()
+            return self._smooth[key]
+        if conf < CONF_MIN:
+            return prev
+        if float(np.linalg.norm(xy - prev)) >= JUMP_PX:
+            self._smooth[key] = xy.copy()
+            return self._smooth[key]
+        smoothed = (1.0 - EMA_ALPHA) * prev + EMA_ALPHA * xy
+        self._smooth[key] = smoothed
+        return smoothed
 
     def _award(self, hit: bool, hip_status: str | None, bar: int) -> None:
         if hit and bar == 1:
@@ -359,40 +431,65 @@ class Pushup:
             "last_award_points": self.last_award_points,
         }
 
-    def update(self, boxes: np.ndarray | None, keypoints: np.ndarray | None) -> dict:
-        """Process one frame of detections. boxes: (N,4), keypoints: (N,17,3)."""
+    def update(
+        self,
+        boxes: np.ndarray | None,
+        keypoints: np.ndarray | None,
+        ids: np.ndarray | None = None,
+    ) -> dict:
+        """Process one frame. boxes: (N,4), keypoints: (N,17,3), ids: (N,) optional."""
         if boxes is None or keypoints is None:
+            if self.top_bar is None:
+                self._calib_since = None
             return self._result(detected=False)
 
-        idx = closest_person(boxes)
+        idx = self._select_person(boxes, ids)
         if idx is None:
+            if self.top_bar is None:
+                self._calib_since = None
             return self._result(detected=False)
 
         kpts = keypoints[idx]
-        side = pick_side(kpts)
-        indices = SIDES[side]
+        if self._side is None:
+            self._side = pick_side(kpts)
+        indices = SIDES[self._side]
 
-        shoulder = kpts[indices["shoulder"]]
-        elbow_pt = kpts[indices["elbow"]]
-        wrist = kpts[indices["wrist"]]
-        hip = kpts[indices["hip"]]
-        knee = kpts[indices["knee"]]
-        ankle = kpts[indices["ankle"]]
+        raw = {key: kpts[indices[key]] for key in JOINT_KEYS}
+        smoothed = {key: self._smooth_joint(key, raw[key]) for key in JOINT_KEYS}
+        shoulder = smoothed["shoulder"]
+        elbow_pt = smoothed["elbow"]
+        wrist = smoothed["wrist"]
+        hip = smoothed["hip"]
+        knee = smoothed["knee"]
+        ankle = smoothed["ankle"]
 
         elbow_deg = joint_angle(shoulder, elbow_pt, wrist)
         hip_result = self.hip.analyze(shoulder, hip, ankle)
         knee_angle = joint_angle(hip, knee, ankle)
+        knee_conf = float(raw["knee"][2]) if raw["knee"].shape[0] > 2 else 1.0
+        legs_ok = knee_conf >= CONF_MIN and legs_extended(knee_angle)
+        elbow_locked = elbow_deg is not None and elbow_deg >= 180.0 - UP_ELBOW_TOL
+        elbow_bent = elbow_deg is not None and elbow_deg < 180.0 - UP_ELBOW_TOL
 
-        if self.top_bar is None and is_ready_pose(
-            shoulder[1],
-            hip[1],
-            ankle[1],
-            elbow_deg,
-            hip_result.hip_angle,
-            knee_angle,
-        ):
-            self.top_bar = float(shoulder[1])
-            self.low_bar = float(ankle[1])
+        if self.top_bar is None:
+            ready = is_ready_pose(
+                shoulder[1],
+                hip[1],
+                ankle[1],
+                elbow_deg,
+                hip_result.hip_angle,
+                knee_angle,
+            )
+            if ready:
+                now = time.monotonic()
+                if self._calib_since is None:
+                    self._calib_since = now
+                elif now - self._calib_since >= CALIB_HOLD_SEC:
+                    self.top_bar = float(shoulder[1])
+                    self.low_bar = float(ankle[1])
+                    self._calib_since = None
+            else:
+                self._calib_since = None
 
         if self.top_bar is not None:
             bar_range = self.low_bar - self.top_bar
@@ -403,37 +500,53 @@ class Pushup:
                     if not is_up_pose(shoulder[1], self.top_bar, self.low_bar):
                         self._left_start_bar = True
                     if is_down_pose(shoulder[1], self.top_bar, self.low_bar):
-                        self._award(True, hip_result.hip_status, bar=1)
-                        self.stage = "down"
-                        self._peak_travel = 0.0
-                        self._left_start_bar = False
+                        if legs_ok and elbow_bent:
+                            self._award(True, hip_result.hip_status, bar=1)
+                            self.stage = "down"
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
+                        else:
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
                     elif (
                         is_up_pose(shoulder[1], self.top_bar, self.low_bar)
                         and self._left_start_bar
                         and self._peak_travel >= MISS_TRAVEL_FRAC
                     ):
-                        self._award(False, hip_result.hip_status, bar=1)
-                        self._peak_travel = 0.0
-                        self._left_start_bar = False
+                        if legs_ok:
+                            self._award(False, hip_result.hip_status, bar=1)
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
+                        else:
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
                 elif self.stage == "down":
                     travel = (self.low_bar - shoulder[1]) / bar_range
                     self._peak_travel = max(self._peak_travel, travel)
                     if not is_down_pose(shoulder[1], self.top_bar, self.low_bar):
                         self._left_start_bar = True
                     if is_up_pose(shoulder[1], self.top_bar, self.low_bar):
-                        self._award(True, hip_result.hip_status, bar=0)
-                        self.stage = "up"
-                        self.reps += 1
-                        self._peak_travel = 0.0
-                        self._left_start_bar = False
+                        if legs_ok and elbow_locked:
+                            self._award(True, hip_result.hip_status, bar=0)
+                            self.stage = "up"
+                            self.reps += 1
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
+                        else:
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
                     elif (
                         is_down_pose(shoulder[1], self.top_bar, self.low_bar)
                         and self._left_start_bar
                         and self._peak_travel >= MISS_TRAVEL_FRAC
                     ):
-                        self._award(False, hip_result.hip_status, bar=0)
-                        self._peak_travel = 0.0
-                        self._left_start_bar = False
+                        if legs_ok:
+                            self._award(False, hip_result.hip_status, bar=0)
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
+                        else:
+                            self._peak_travel = 0.0
+                            self._left_start_bar = False
 
         return self._result(
             detected=True,

@@ -1,17 +1,22 @@
 import ScoreCard from "./ScoreCard.jsx";
 
 export default function WebCamSessionEnded({
-  onHome,
-  onView,
+  onMode,
+  onRetry,
   y0Hits = 0,
   y1Hits = 0,
   good = 0,
   bad = 0,
   total = 0,
+  awards = [],
+  prevBest = null,
+  isNewBest = false,
 }) {
   return (
     <div className="ended-card ended-card--anim">
-      <p className="ended-heading">SESSION ENDED</p>
+      <p className="ended-heading">
+        {isNewBest ? "NEW BEST" : "SESSION ENDED"}
+      </p>
       <div className="ended-bar" />
       <ScoreCard
         open
@@ -20,21 +25,24 @@ export default function WebCamSessionEnded({
         good={good}
         bad={bad}
         total={total}
+        awards={awards}
+        prevBest={prevBest}
+        isNewBest={isNewBest}
       />
       <div className="ended-actions">
         <button
           className="lp-btn lp-btn--start"
           type="button"
-          onClick={onHome}
+          onClick={onMode}
         >
-          HOME
+          MODE
         </button>
         <button
           className="lp-btn lp-btn--start"
           type="button"
-          onClick={onView}
+          onClick={onRetry}
         >
-          VIEW
+          RETRY
         </button>
       </div>
     </div>

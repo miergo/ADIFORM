@@ -1,7 +1,7 @@
 import { useState } from "react";
 import RulesComponent, { RULE_COUNT } from "../components/RulesComponent.jsx";
 
-export default function WebcamRulePage({ starting, error, onBegin, onHome }) {
+export default function WebcamRulePage({ starting, error, onBegin, onHome, onBack }) {
   const [step, setStep] = useState(1);
 
   return (
@@ -14,11 +14,30 @@ export default function WebcamRulePage({ starting, error, onBegin, onHome }) {
             </div>
             <div className="landing-bg-bar" />
           </div>
+          {onHome ? (
+            <div className="layout-preview-bar">
+              <button
+                className="layout-preview-btn"
+                type="button"
+                onClick={onHome}
+              >
+                HOME
+              </button>
+            </div>
+          ) : null}
+          <button
+            className="layout-preview-btn rules-skip-btn"
+            type="button"
+            onClick={onBegin}
+            disabled={starting}
+          >
+            SKIP
+          </button>
           <div className="rules-page-card">
             <RulesComponent
               step={step}
               disabled={starting}
-              onHome={onHome}
+              onBack={onBack}
               onPrev={() => setStep((s) => Math.max(1, s - 1))}
               onNext={() => setStep((s) => Math.min(RULE_COUNT, s + 1))}
               onBegin={onBegin}

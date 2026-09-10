@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import SessionStage from "../components/SessionStage.jsx";
+import { playSfx } from "../sounds.js";
 
 const COUNTDOWN = [3, 2, 1, 4];
+const ABSENT_END_SEC = 3;
 const PREVIEW_MODES = [
   ["calibrating", "CALIB"],
   ["complete", "DONE"],
@@ -14,6 +16,7 @@ export default function WebcamSessionPage({
   error,
   layoutPreview = false,
   source = "webcam",
+  timeLimit = null,
   onHome,
   onEnd,
 }) {
@@ -22,10 +25,17 @@ export default function WebcamSessionPage({
   const [counterState, setCounterState] = useState(0);
   const [sessionStartedAt, setSessionStartedAt] = useState(null);
   const [now, setNow] = useState(() => Date.now());
+  const [awardLog, setAwardLog] = useState([]);
+  const [lastAward, setLastAward] = useState(null);
   const readyStarted = useRef(false);
   const goSent = useRef(false);
   const wasRunning = useRef(false);
   const ended = useRef(false);
+  const prevAwardSeq = useRef(0);
+  const awardLogRef = useRef([]);
+  const activeStarted = useRef(false);
+  const sawPersonRef = useRef(false);
+  const absentSinceRef = useRef(null);
   const onEndRef = useRef(onEnd);
   onEndRef.current = onEnd;
 
@@ -34,7 +44,7 @@ export default function WebcamSessionPage({
       return;
     }
     ended.current = true;
-    onEndRef.current?.();
+    onEndRef.current?.(awardLogRef.current);
   }
 
   useEffect(() => {
@@ -83,6 +93,50 @@ export default function WebcamSessionPage({
     if (layoutPreview) {
       return;
     }
+    if (status.phase === "active" && !activeStarted.current) {
+      activeStarted.current = true;
+      prevAwardSeq.current = status.award_seq ?? 0;
+      sawPersonRef.current = false;
+      absentSinceRef.current = null;
+      setAwardLog([]);
+      setLastAward(null);
+      awardLogRef.current = [];
+    }
+  }, [layoutPreview, status.phase, status.award_seq]);
+
+  useEffect(() => {
+    if (layoutPreview) {
+      return;
+    }
+    const seq = status.award_seq ?? 0;
+    if (seq <= prevAwardSeq.current) {
+      return;
+    }
+    const award = {
+      mult: status.last_multiplier ?? 1,
+      label: status.last_award_label ?? "",
+      points: status.last_award_points ?? 0,
+    };
+    setLastAward(award);
+    playSfx("multiplier");
+    setAwardLog((log) => {
+      const next = [...log, award];
+      awardLogRef.current = next;
+      return next;
+    });
+    prevAwardSeq.current = seq;
+  }, [
+    layoutPreview,
+    status.award_seq,
+    status.last_multiplier,
+    status.last_award_label,
+    status.last_award_points,
+  ]);
+
+  useEffect(() => {
+    if (layoutPreview) {
+      return;
+    }
     if (status.running === true) {
       wasRunning.current = true;
     }
@@ -95,6 +149,7 @@ export default function WebcamSessionPage({
     if (mode !== "timer") {
       return undefined;
     }
+    playSfx("counter");
     let i = 0;
     setCounterState(COUNTDOWN[0]);
     const id = setInterval(async () => {
@@ -126,6 +181,41 @@ export default function WebcamSessionPage({
 
   const elapsed =
     sessionStartedAt != null ? (now - sessionStartedAt) / 1000 : 0;
+
+  useEffect(() => {
+    if (layoutPreview || timeLimit == null || mode !== "session") {
+      return;
+    }
+    if (elapsed >= timeLimit) {
+      finish();
+    }
+  }, [layoutPreview, timeLimit, mode, elapsed]);
+
+  useEffect(() => {
+    if (layoutPreview || mode !== "session") {
+      return;
+    }
+    if (status.detected) {
+      sawPersonRef.current = true;
+      absentSinceRef.current = null;
+      return;
+    }
+    if (!sawPersonRef.current) {
+      return;
+    }
+    if (absentSinceRef.current == null) {
+      absentSinceRef.current = now;
+      return;
+    }
+    if ((now - absentSinceRef.current) / 1000 >= ABSENT_END_SEC) {
+      finish();
+    }
+  }, [layoutPreview, mode, status.detected, now]);
+
+  const previewAward =
+    layoutPreview && mode === "session"
+      ? { mult: 1.85, label: "deep" }
+      : lastAward;
 
   function pickPreviewMode(next) {
     setMode(next);
@@ -210,6 +300,7 @@ export default function WebcamSessionPage({
               reps={layoutPreview ? 12 : (status.reps ?? 0)}
               time={elapsed}
               score={layoutPreview ? 1840 : (status.score ?? 0)}
+              lastAward={previewAward}
               streamSrc={streamKey ? `/api/stream?t=${streamKey}` : null}
               source={source}
             />

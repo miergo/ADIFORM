@@ -1,14 +1,16 @@
 const RULES = [
-  "THE CAMERA SHOULD BE PLACED FACING BELOW WAIST LEVEL,AND MAKE SURE YOUR FULLBODY LENGTH FITS THE FULL FRAME.",
-  "ONCE IN FRAME,THE CALIBRATION WILL BEGIN AND  YOU NEED TO STAY IN THE UPWARD PUSHUP POSITION FOR 3 SECONDS.",
-  "A SOUND COUNTER WILL PLAY, AND THEN YOU CAN BEGIN YOUR PUSHUP MOTION",
+  "SET THE CAMERA AT YOUR SIDE, LOW ENOUGH TO SEE YOUR WHOLE BODY.",
+  "HOLD A HIGH PLANK UNTIL CALIBRATION FINISHES.",
+  "WAIT FOR THE COUNTDOWN. THEN GO.",
+  "KEEP YOUR ELBOWS CLOSE TO YOUR BODY. DONT FLARE THEM OUT.",
+  "FULL PUSH-UPS ONLY. LEGS STRAIGHT, BEND YOUR ARMS AT THE BOTTOM, LOCK THEM OUT AT THE TOP.",
   "HAVE FUN",
 ];
 
 export default function RulesComponent({
   step,
   disabled = false,
-  onHome,
+  onBack,
   onPrev,
   onNext,
   onBegin,
@@ -26,10 +28,10 @@ export default function RulesComponent({
           <button
             className="lp-btn lp-btn--nav"
             type="button"
-            onClick={onHome}
+            onClick={onBack}
             disabled={disabled}
           >
-            HOME
+            BACK
           </button>
         ) : (
           <button

@@ -7,6 +7,7 @@ export default function SessionStage({
   reps = 0,
   time = 0,
   score = 0,
+  lastAward = null,
   streamSrc,
   source = "webcam",
 }) {
@@ -17,10 +18,12 @@ export default function SessionStage({
       mode === "complete" ||
       mode === "timer");
   const playing = mode === "session";
+  const showAward = Boolean(lastAward?.label);
   const stageClass = [
     "session-stage",
     showFeed ? "session-stage--feed" : "",
     playing ? "session-stage--playing" : "",
+    playing && showAward ? "session-stage--award" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -45,7 +48,9 @@ export default function SessionStage({
           <GoCounter state={counterState} />
         </div>
       ) : null}
-      {playing ? <Hud reps={reps} time={time} score={score} /> : null}
+      {playing ? (
+        <Hud reps={reps} time={time} score={score} lastAward={lastAward} />
+      ) : null}
     </div>
   );
 }

@@ -100,6 +100,7 @@ button {
   left: 50%;
   transform: translateX(-50%);
   width: 1272px;
+  height: 664px;
   background: #fff;
   border: 7px solid #000;
   display: flex;
@@ -152,7 +153,7 @@ button {
   align-items: center;
   justify-content: center;
   width: 373px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .lp-buttons--start {
@@ -161,18 +162,33 @@ button {
 
 .lp-buttons--source {
   flex-direction: column;
+  gap: 8px;
+  padding: 16px 85px;
+}
+
+.lp-buttons--timed {
+  flex-direction: row;
   gap: 16px;
+  width: auto;
   padding: 60px 85px;
+  margin-left: -1px;
 }
 
 .lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: #fff;
   border: 1px solid #000;
   color: #000;
   font-family: "0xProto Nerd Font", "0xProto", monospace;
   font-weight: 400;
   line-height: normal;
+  text-align: center;
   white-space: nowrap;
+  -webkit-text-stroke: 1px #000;
+  paint-order: stroke fill;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.75);
 }
 
 .lp-btn--start {
@@ -194,6 +210,9 @@ button {
 .lp-btn:hover:not(:disabled) {
   background: #000;
   color: #fff;
+  outline-color: #fff;
+  -webkit-text-stroke: 1px #fff;
+  box-shadow: none;
 }
 
 .lp-btn:disabled {
@@ -239,6 +258,13 @@ button {
   transform: translateX(-50%);
 }
 
+.rules-skip-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 4;
+}
+
 /* RulesComponent — Figma set 26:659 */
 .rules-card {
   position: absolute;
@@ -266,7 +292,7 @@ button {
 .rules-text {
   flex: 1;
   margin: 80px 0 0;
-  padding: 0 0 0 48px;
+  padding: 0 16px 0 28px;
   color: #000;
   font-family: "0xProto Nerd Font", "0xProto", monospace;
   font-size: 32px;
@@ -276,7 +302,8 @@ button {
 }
 
 .rules-text li {
-  padding-left: 8px;
+  margin-inline-start: 48px;
+  padding-left: 0;
 }
 
 .rules-nav {
@@ -568,8 +595,21 @@ button {
   z-index: 1;
 }
 
-.session-stage--playing .session-feed {
-  bottom: 101px;
+
+.hud-award {
+  margin: 0;
+  padding: 6px 49px 10px;
+  background: #000;
+  color: #0ff;
+  font-family: "0xProto Nerd Font", "0xProto", monospace;
+  font-size: 20px;
+  letter-spacing: 2px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.hud-award--boost {
+  color: #0f0;
 }
 
 .session-stage--feed .session-heading {
@@ -584,18 +624,25 @@ button {
 }
 
 .session-feed img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
 }
 
-.session-stage .hud {
+.session-stage .hud-wrap {
   position: absolute;
   left: 0;
   bottom: 0;
   width: 100%;
   z-index: 2;
+}
+
+.session-stage .hud {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  width: 100%;
 }
 
 .session-stage .score-card {
@@ -616,18 +663,22 @@ button {
 
 .layout-preview-btn {
   background: #fff;
-  border: 1px solid #000;
+  border: none;
+  outline: 1px solid #000;
+  outline-offset: 0;
   color: #000;
   font-family: "0xProto Nerd Font", "0xProto", monospace;
   font-size: 12px;
   letter-spacing: 1px;
   padding: 6px 10px;
+  box-shadow: none;
 }
 
 .layout-preview-btn--on,
 .layout-preview-btn:hover {
   background: #000;
   color: #fff;
+  outline-color: #fff;
 }
 
 /* WebCamSessionEnded — Figma 158:653, 2s keyframes play once */
@@ -687,6 +738,10 @@ button {
   pointer-events: none;
 }
 
+.ended-actions .lp-btn {
+  line-height: 48px;
+}
+
 .ended-card--anim .ended-heading {
   animation: ended-heading-anim 2s forwards;
 }
@@ -708,14 +763,17 @@ button {
     opacity: 0;
     animation-timing-function: ease-out;
   }
+
   25% {
     opacity: 1;
     animation-timing-function: ease-out;
   }
+
   62.15% {
     opacity: 0;
     animation-timing-function: linear;
   }
+
   100% {
     opacity: 0;
   }
@@ -726,14 +784,17 @@ button {
     transform: scaleX(1) scaleY(1);
     animation-timing-function: linear;
   }
+
   32.45% {
     transform: scaleX(1) scaleY(1);
     animation-timing-function: ease-in;
   }
+
   82.55% {
     transform: scaleX(0.547) scaleY(6.416);
     animation-timing-function: linear;
   }
+
   100% {
     transform: scaleX(0.547) scaleY(6.416);
   }
@@ -744,10 +805,12 @@ button {
     opacity: 0;
     animation-timing-function: linear;
   }
+
   99.99% {
     opacity: 0;
     animation-timing-function: ease-out;
   }
+
   100% {
     opacity: 1;
   }
@@ -758,14 +821,17 @@ button {
     opacity: 0;
     pointer-events: none;
   }
+
   86.65% {
     opacity: 0;
     pointer-events: none;
   }
+
   99.99% {
     opacity: 0.59459;
     pointer-events: none;
   }
+
   100% {
     opacity: 1;
     pointer-events: auto;
