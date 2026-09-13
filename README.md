@@ -4,7 +4,7 @@ Local game: webcam or uploaded video → YOLO pose → live feed + HUD → score
 
 Hold a plank to calibrate, then hit the depth bars. Score comes from depth and hip posture, not reps alone.
 
-Fronted UI
+Fronted UI: https://www.figma.com/design/Ri4OqGX5ytMmzLzd3memo2/ADIFORM-2099?node-id=0-1&t=XhU66cCW2b0biesK-1
 
 https://github.com/user-attachments/assets/0013b178-1ba9-439d-a410-03054ead9ecf
 
