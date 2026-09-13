@@ -4,6 +4,16 @@ Local game: webcam or uploaded video → YOLO pose → live feed + HUD → score
 
 Hold a plank to calibrate, then hit the depth bars. Score comes from depth and hip posture, not reps alone.
 
+Fronted UI
+
+https://github.com/user-attachments/assets/0013b178-1ba9-439d-a410-03054ead9ecf
+
+Backend Pose Tracker
+
+
+https://github.com/user-attachments/assets/cd32ad41-a591-4dc4-9e52-ee24ef3ad7d9
+
+
 ## What you do
 
 1. Choose **webcam** (timed or endless) or **upload** a video.
