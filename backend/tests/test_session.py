@@ -13,7 +13,7 @@ def _metrics(**overrides):
         "shoulder": np.array([100.0, 100.0]),
         "hip": np.array([100.0, 200.0]),
         "ankle": np.array([100.0, 300.0]),
-        "elbow": 175.0,
+        "elbow_angle": 175.0,
         "hip_angle": 180.0,
         "hip_status": "aligned",
         "top_bar": None,
@@ -66,15 +66,15 @@ class TestWorkoutSession:
         s.phase = "active"
         s.tracker.reps = 4
         s.tracker.score = 350
-        s.tracker.y0_hits = 2
-        s.tracker.y1_hits = 3
+        s.tracker.top_bar_hits = 2
+        s.tracker.low_bar_hits = 3
         s.tracker.posture_good = 4
         s.tracker.posture_bad = 1
         summary = s.stop()
         assert summary["reps"] == 4
         assert summary["score"] == 350
-        assert summary["y0_hits"] == 2
-        assert summary["y1_hits"] == 3
+        assert summary["top_bar_hits"] == 2
+        assert summary["low_bar_hits"] == 3
         assert summary["posture_good"] == 4
         assert summary["posture_bad"] == 1
         assert s.phase == "idle"
@@ -148,6 +148,9 @@ class TestWorkoutSession:
         class FakeCap:
             def read(self):
                 return False, None
+
+            def get(self, _prop):
+                return 30.0
 
             def release(self):
                 pass

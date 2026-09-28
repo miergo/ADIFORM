@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import WebCamSessionEnded from "../components/WebCamSessionEnded.jsx";
+import WebcamSessionEnded from "../components/WebcamSessionEnded.jsx";
 import { playSfx, stopSfx } from "../sounds.js";
 
 export default function WebcamSessionEndedPage({
@@ -47,15 +47,15 @@ export default function WebcamSessionEndedPage({
             ) : null}
           </div>
           <div className="ended-page-slot">
-            <WebCamSessionEnded
+            <WebcamSessionEnded
               key={playKey}
               onMode={onMode}
               onRetry={onRetry}
-              y0Hits={layoutPreview ? 8 : (summary.y0_hits ?? 0)}
-              y1Hits={layoutPreview ? 7 : (summary.y1_hits ?? 0)}
-              good={layoutPreview ? 12 : (summary.posture_good ?? 0)}
-              bad={layoutPreview ? 3 : (summary.posture_bad ?? 0)}
-              total={layoutPreview ? 1840 : (summary.score ?? 0)}
+              topBarHits={layoutPreview ? 8 : (summary.top_bar_hits ?? 0)}
+              lowBarHits={layoutPreview ? 7 : (summary.low_bar_hits ?? 0)}
+              postureGood={layoutPreview ? 12 : (summary.posture_good ?? 0)}
+              postureBad={layoutPreview ? 3 : (summary.posture_bad ?? 0)}
+              score={layoutPreview ? 1840 : (summary.score ?? 0)}
               prevBest={layoutPreview ? 2100 : (summary.prevBest ?? null)}
               isNewBest={layoutPreview ? false : Boolean(summary.isNewBest)}
               awards={

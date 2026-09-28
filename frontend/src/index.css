@@ -353,7 +353,7 @@ button {
   inset: 0;
 }
 
-.go-counter--4 .go-counter-outer,
+.go-counter--go .go-counter-outer,
 .go-counter--5 .go-counter-outer {
   width: 432px;
   height: 432px;
@@ -390,7 +390,7 @@ button {
   top: 58px;
 }
 
-.go-counter--4 .go-counter-inner {
+.go-counter--go .go-counter-inner {
   width: 384px;
   height: 384px;
   left: 69px;
@@ -415,7 +415,7 @@ button {
   top: 92px;
 }
 
-.go-counter--4 .go-counter-text {
+.go-counter--go .go-counter-text {
   left: -21px;
   top: 121px;
 }
@@ -595,6 +595,13 @@ button {
   z-index: 1;
 }
 
+.session-stage--playing .session-feed {
+  bottom: 101px;
+}
+
+.session-stage--award .session-feed {
+  bottom: 148px;
+}
 
 .hud-award {
   margin: 0;
@@ -626,7 +633,7 @@ button {
 .session-feed img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
@@ -635,6 +642,7 @@ button {
   left: 0;
   bottom: 0;
   width: 100%;
+  background: #000;
   z-index: 2;
 }
 
@@ -681,7 +689,7 @@ button {
   outline-color: #fff;
 }
 
-/* WebCamSessionEnded — Figma 158:653, 2s keyframes play once */
+/* WebcamSessionEnded — Figma 158:653, 2s keyframes play once */
 .ended-card {
   position: relative;
   width: 1273px;

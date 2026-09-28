@@ -17,10 +17,10 @@ SIDES = {"left": LEFT, "right": RIGHT}
 UP_ELBOW_TOL = 35.0  # tolerance from 145.0 degrees for up position
 # UP_ELBOW_DEG = 145.0
 UP_BAR_TOL = 0.15  # fraction of locked bar range (shoulder near top bar)
-DOWN_BAR_TOL = 0.35  # fraction of locked bar range (shoulder near low bar)
+DOWN_BAR_TOL = 0.45  # fraction of locked bar range (shoulder near low bar)
 BODY_ALIGN_TOL = 25.0  # degrees from 180 at hip (shoulder-hip-ankle)
 KNEE_ANGLE_TOL = 30.0  # degrees from 160 at knee (hip-knee-ankle)
-MISS_TRAVEL_FRAC = 0.4  # min travel along bar range before a miss can resolve
+MISS_TRAVEL_FRAC = 0.5  # min travel along bar range before a miss can resolve
 CALIB_HOLD_SEC = 1.5  # continuous ready plank before locking bars
 EMA_ALPHA = 0.4  # joint smoothing: smoothed = (1-a)*prev + a*raw
 CONF_MIN = 0.3  # hold previous xy when joint confidence is below this
@@ -49,7 +49,7 @@ def hit_depth_multiplier(peak_travel: float, bar_tol: float) -> tuple[float, str
     return mult, "hit"
 
 
-def closest_person(boxes: np.ndarray | None) -> int | None:
+def largest_box_index(boxes: np.ndarray | None) -> int | None:
     """Return index of the largest box (nearest to camera)."""
     if boxes is None or len(boxes) == 0:
         return None
@@ -279,7 +279,7 @@ def _empty_result(reps: int = 0, stage: str = "up", score: int = 0) -> dict:
         "hip": None,
         "knee": None,
         "ankle": None,
-        "elbow": None,
+        "elbow_angle": None,
         "hip_angle": None,
         "hip_status": None,
         "knee_angle": None,
@@ -300,8 +300,8 @@ class Pushup:
         self.stage: str = "up"
         self.reps: int = 0
         self.score: int = 0
-        self.y0_hits: int = 0
-        self.y1_hits: int = 0
+        self.top_bar_hits: int = 0
+        self.low_bar_hits: int = 0
         self.posture_good: int = 0
         self.posture_bad: int = 0
         self._peak_travel: float = 0.0
@@ -322,8 +322,8 @@ class Pushup:
         self.reps = 0
         self.stage = "up"
         self.score = 0
-        self.y0_hits = 0
-        self.y1_hits = 0
+        self.top_bar_hits = 0
+        self.low_bar_hits = 0
         self.posture_good = 0
         self.posture_bad = 0
         self._peak_travel = 0.0
@@ -348,16 +348,16 @@ class Pushup:
             if self._locked_box is not None:
                 idx, iou = best_iou_index(boxes, self._locked_box)
                 if iou < IOU_REACQUIRE:
-                    idx = closest_person(boxes)
+                    idx = largest_box_index(boxes)
             else:
-                idx = closest_person(boxes)
+                idx = largest_box_index(boxes)
             if idx is None:
                 return None
             self._locked_box = boxes[idx].astype(np.float64).copy()
             return idx
 
         if self._locked_id is None:
-            idx = closest_person(boxes)
+            idx = largest_box_index(boxes)
             if idx is None:
                 return None
             self._locked_id = int(ids[idx])
@@ -397,10 +397,10 @@ class Pushup:
         self._smooth[key] = smoothed
         return smoothed
 
-    def _award(self, hit: bool, hip_status: str | None, bar: int) -> None:
-        if hit and bar == 1:
+    def _award(self, hit: bool, hip_status: str | None, bar: str) -> None:
+        if hit and bar == "low":
             mult, label = hit_depth_multiplier(self._peak_travel, DOWN_BAR_TOL)
-        elif hit and bar == 0:
+        elif hit and bar == "top":
             mult, label = hit_depth_multiplier(self._peak_travel, UP_BAR_TOL)
         else:
             mult, label = 1.0, "miss"
@@ -409,10 +409,10 @@ class Pushup:
         base = stroke_points(hit, good)
         pts = int(round(base * mult))
         self.score += pts
-        if hit and bar == 0:
-            self.y0_hits += 1
-        elif hit and bar == 1:
-            self.y1_hits += 1
+        if hit and bar == "top":
+            self.top_bar_hits += 1
+        elif hit and bar == "low":
+            self.low_bar_hits += 1
         if good:
             self.posture_good += 1
         else:
@@ -501,7 +501,7 @@ class Pushup:
                         self._left_start_bar = True
                     if is_down_pose(shoulder[1], self.top_bar, self.low_bar):
                         if legs_ok and elbow_bent:
-                            self._award(True, hip_result.hip_status, bar=1)
+                            self._award(True, hip_result.hip_status, bar="low")
                             self.stage = "down"
                             self._peak_travel = 0.0
                             self._left_start_bar = False
@@ -514,7 +514,7 @@ class Pushup:
                         and self._peak_travel >= MISS_TRAVEL_FRAC
                     ):
                         if legs_ok:
-                            self._award(False, hip_result.hip_status, bar=1)
+                            self._award(False, hip_result.hip_status, bar="low")
                             self._peak_travel = 0.0
                             self._left_start_bar = False
                         else:
@@ -527,7 +527,7 @@ class Pushup:
                         self._left_start_bar = True
                     if is_up_pose(shoulder[1], self.top_bar, self.low_bar):
                         if legs_ok and elbow_locked:
-                            self._award(True, hip_result.hip_status, bar=0)
+                            self._award(True, hip_result.hip_status, bar="top")
                             self.stage = "up"
                             self.reps += 1
                             self._peak_travel = 0.0
@@ -541,7 +541,7 @@ class Pushup:
                         and self._peak_travel >= MISS_TRAVEL_FRAC
                     ):
                         if legs_ok:
-                            self._award(False, hip_result.hip_status, bar=0)
+                            self._award(False, hip_result.hip_status, bar="top")
                             self._peak_travel = 0.0
                             self._left_start_bar = False
                         else:
@@ -556,7 +556,7 @@ class Pushup:
             hip=hip[:2],
             knee=knee[:2],
             ankle=ankle[:2],
-            elbow=elbow_deg,
+            elbow_angle=elbow_deg,
             hip_angle=hip_result.hip_angle,
             hip_status=hip_result.hip_status,
             knee_angle=knee_angle,
@@ -571,7 +571,7 @@ class Pushup:
         hip=None,
         knee=None,
         ankle=None,
-        elbow=None,
+        elbow_angle=None,
         hip_angle=None,
         hip_status=None,
         knee_angle=None,
@@ -590,7 +590,7 @@ class Pushup:
             "hip": hip,
             "knee": knee,
             "ankle": ankle,
-            "elbow": elbow,
+            "elbow_angle": elbow_angle,
             "hip_angle": hip_angle,
             "hip_status": hip_status,
             "knee_angle": knee_angle,

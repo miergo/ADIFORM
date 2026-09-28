@@ -1,13 +1,13 @@
 import ScoreCard from "./ScoreCard.jsx";
 
-export default function WebCamSessionEnded({
+export default function WebcamSessionEnded({
   onMode,
   onRetry,
-  y0Hits = 0,
-  y1Hits = 0,
-  good = 0,
-  bad = 0,
-  total = 0,
+  topBarHits = 0,
+  lowBarHits = 0,
+  postureGood = 0,
+  postureBad = 0,
+  score = 0,
   awards = [],
   prevBest = null,
   isNewBest = false,
@@ -20,11 +20,11 @@ export default function WebCamSessionEnded({
       <div className="ended-bar" />
       <ScoreCard
         open
-        y0Hits={y0Hits}
-        y1Hits={y1Hits}
-        good={good}
-        bad={bad}
-        total={total}
+        topBarHits={topBarHits}
+        lowBarHits={lowBarHits}
+        postureGood={postureGood}
+        postureBad={postureBad}
+        score={score}
         awards={awards}
         prevBest={prevBest}
         isNewBest={isNewBest}

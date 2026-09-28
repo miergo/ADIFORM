@@ -24,7 +24,7 @@ IDLE_STATUS = {
     "top_bar": None,
     "low_bar": None,
     "shoulder_y": None,
-    "elbow": None,
+    "elbow_angle": None,
     "hip_angle": None,
     "hip_status": None,
     "award_seq": 0,
@@ -61,7 +61,7 @@ def _status_from(metrics: dict, phase: str, running: bool) -> dict:
         "top_bar": metrics.get("top_bar"),
         "low_bar": metrics.get("low_bar"),
         "shoulder_y": None if shoulder is None else float(shoulder[1]),
-        "elbow": metrics.get("elbow"),
+        "elbow_angle": metrics.get("elbow_angle"),
         "hip_angle": metrics.get("hip_angle"),
         "hip_status": metrics.get("hip_status"),
         "award_seq": metrics.get("award_seq", 0),
@@ -76,6 +76,7 @@ class WorkoutSession:
 
     def __init__(self, model=None) -> None:
         self._model = model
+        self._device = "cpu"
         self._cap = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -105,8 +106,8 @@ class WorkoutSession:
         summary = {
             "reps": self.tracker.reps,
             "score": self.tracker.score,
-            "y0_hits": self.tracker.y0_hits,
-            "y1_hits": self.tracker.y1_hits,
+            "top_bar_hits": self.tracker.top_bar_hits,
+            "low_bar_hits": self.tracker.low_bar_hits,
             "posture_good": self.tracker.posture_good,
             "posture_bad": self.tracker.posture_bad,
             "top_bar": self.tracker.top_bar,
@@ -193,31 +194,64 @@ class WorkoutSession:
 
     def _ensure_model(self) -> None:
         if self._model is None:
+            import torch
             from ultralytics import YOLO
 
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._device = device
             self._model = YOLO(str(MODEL_PATH))
+            self._model.to(device)
 
     def _should_advance(self) -> bool:
         """Return False while uploaded video is paused for the countdown."""
         return not (self._source == "video" and self.phase == "ready")
 
+    def _video_fps(self) -> float:
+        fps = float(self._cap.get(cv2.CAP_PROP_FPS) or 0) if self._cap else 0.0
+        return fps if fps >= 1.0 else 30.0
+
+    def _end_loop(self) -> None:
+        self.running = False
+        with self._lock:
+            self._status = {**self._status, "running": False, "phase": self.phase}
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+
     def _loop(self) -> None:
+        pace = self._source == "video"
+        fps = self._video_fps() if pace else 0.0
+        frame_i = 0
+        t0: float | None = None
+
         while not self._stop.is_set():
             if not self._should_advance():
+                t0 = None
                 time.sleep(0.03)
                 continue
+
             ok, frame = self._cap.read()
             if not ok:
-                self.running = False
-                with self._lock:
-                    self._status = {**self._status, "running": False, "phase": self.phase}
-                break
-            result = self._model.track(frame, persist=True, verbose=False)[0]
+                self._end_loop()
+                return
+            if pace:
+                frame_i += 1
+            result = self._model.track(
+                frame, persist=True, verbose=False, device=self._device
+            )[0]
             boxes, keypoints, ids = _detections(result)
             metrics = self.tracker.update(boxes, keypoints, ids)
             draw_overlay(frame, metrics)
             self.apply_metrics(metrics, frame)
-            time.sleep(0.001)
+            if pace:
+                now = time.monotonic()
+                if t0 is None:
+                    t0 = now - (frame_i - 1) / fps
+                delay = t0 + frame_i / fps - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+            else:
+                time.sleep(0.001)
         if self._cap is not None:
             self._cap.release()
             self._cap = None

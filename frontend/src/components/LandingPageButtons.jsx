@@ -1,5 +1,3 @@
-import { useRef } from "react";
-
 const TIMED_DURATIONS = [
   { label: "30s", seconds: 30 },
   { label: "60s", seconds: 60 },
@@ -11,13 +9,11 @@ export default function LandingPageButtons({
   disabled = false,
   onStart,
   onWebcam,
-  onUploadFile,
+  onUpload,
   onTimed,
   onEndless,
   onTimedDuration,
 }) {
-  const fileRef = useRef(null);
-
   if (state === "timed") {
     return (
       <div className="lp-buttons lp-buttons--timed">
@@ -73,21 +69,11 @@ export default function LandingPageButtons({
         <button
           className="lp-btn lp-btn--choice"
           type="button"
-          onClick={() => fileRef.current?.click()}
+          onClick={onUpload}
           disabled={disabled}
         >
           UPLOAD
         </button>
-        <input
-          ref={fileRef}
-          className="hidden-file"
-          type="file"
-          accept="video/*"
-          onChange={(e) => {
-            onUploadFile?.(e.target.files?.[0]);
-            e.target.value = "";
-          }}
-        />
       </div>
     );
   }

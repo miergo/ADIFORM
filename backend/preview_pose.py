@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,11 +24,8 @@ from pose import (
     pt,
 )
 
-INPUT_VIDEO = Path("sample_videos/pushup1.mp4")
-OUTPUT_DIR = Path("uploads/test_preview_1")
+DEFAULT_INPUT = Path("sample_videos/pushup2.mp4")
 MODEL_PATH = Path("model/yolo26n-pose.pt")
-
-_PREVIEW_RE = re.compile(r"^pushup_test_(\d+)_preview\.mp4$")
 
 ELBOW_MIN = 175.0 - UP_ELBOW_TOL
 BODY_MIN = 180.0 - BODY_ALIGN_TOL
@@ -101,7 +98,7 @@ def draw_debug_constants(frame: np.ndarray, out: dict) -> None:
     if not out.get("detected"):
         return
 
-    elbow = out.get("elbow")
+    elbow_angle = out.get("elbow_angle")
     hip_angle = out.get("hip_angle")
     knee_angle = out.get("knee_angle")
     shoulder = out["shoulder"]
@@ -111,7 +108,7 @@ def draw_debug_constants(frame: np.ndarray, out: dict) -> None:
     knee = out.get("knee")
     ankle = out["ankle"]
 
-    elbow_ok = elbow is not None and elbow >= ELBOW_MIN
+    elbow_ok = elbow_angle is not None and elbow_angle >= ELBOW_MIN
     knee_ok = knee_angle is not None and knee_angle >= KNEE_MIN
 
     arm_color = (0, 255, 0) if elbow_ok else (0, 0, 255)
@@ -127,7 +124,7 @@ def draw_debug_constants(frame: np.ndarray, out: dict) -> None:
         shoulder[1],
         hip[1],
         ankle[1],
-        elbow,
+        elbow_angle,
         hip_angle,
         knee_angle,
     )
@@ -201,7 +198,7 @@ class DownStrokeCollector:
         depth: float | None,
         tracker: Pushup,
         prev_score: int,
-        prev_y1_hits: int,
+        prev_low_bar_hits: int,
         prev_stage: str,
     ) -> None:
         if depth is None:
@@ -210,7 +207,7 @@ class DownStrokeCollector:
         self.live.append((frame, depth))
 
         score_up = tracker.score > prev_score
-        y1_up = tracker.y1_hits > prev_y1_hits
+        low_bar_up = tracker.low_bar_hits > prev_low_bar_hits
 
         if not self._stroke_active and not self._at_bottom_after_hit:
             if prev_stage == "up" and depth > self.DEPTH_START:
@@ -223,7 +220,7 @@ class DownStrokeCollector:
                 self._peak_depth = depth
                 self._peak_frame = frame
 
-        if score_up and not y1_up and prev_stage == "up":
+        if score_up and not low_bar_up and prev_stage == "up":
             self.peaks.append(
                 StrokePeak(frame=self._peak_frame, depth=self._peak_depth, hit=False)
             )
@@ -231,7 +228,7 @@ class DownStrokeCollector:
             self._prev_depth = depth
             return
 
-        if y1_up:
+        if low_bar_up:
             self._at_bottom_after_hit = True
             self._stroke_active = False
 
@@ -317,27 +314,20 @@ def save_depth_graph(
     plt.close(fig)
 
 
-def next_output_path(output_dir: Path) -> Path:
-    """Return uploads/test_preview/pushup_testN_preview.mp4 with N = max existing + 1."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    max_n = 0
-    for path in output_dir.glob("pushup_test_*_preview.mp4"):
-        match = _PREVIEW_RE.match(path.name)
-        if match:
-            max_n = max(max_n, int(match.group(1)))
-    return output_dir / f"pushup_test_{max_n + 1}_preview.mp4"
-
-
 def main() -> None:
-    if not INPUT_VIDEO.is_file():
-        raise FileNotFoundError(f"Input video not found: {INPUT_VIDEO.resolve()}")
+    input_video = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_INPUT
+    if not input_video.is_file():
+        raise FileNotFoundError(f"Input video not found: {input_video.resolve()}")
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = next_output_path(OUTPUT_DIR)
+    stem = input_video.stem
+    output_dir = Path("uploads") / f"preview_{stem}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{stem}_preview.mp4"
+    graph_path = output_dir / f"{stem}_preview_depth.png"
 
-    cap = cv2.VideoCapture(str(INPUT_VIDEO))
+    cap = cv2.VideoCapture(str(input_video))
     if not cap.isOpened():
-        raise RuntimeError(f"Could not open video: {INPUT_VIDEO}")
+        raise RuntimeError(f"Could not open video: {input_video}")
 
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -358,9 +348,8 @@ def main() -> None:
     frame_count = 0
     prev_award_seq = 0
     award_log: list[str] = []
-    graph_path = output_path.parent / f"{output_path.stem}_depth.png"
 
-    print(f"Input:  {INPUT_VIDEO}")
+    print(f"Input:  {input_video}")
     print(f"Output: {output_path}")
     print(f"Graph:  {graph_path}")
     print(f"Size:   {w}x{h} @ {fps:.1f} fps")
@@ -383,7 +372,7 @@ def main() -> None:
             keypoints = result.keypoints.data.cpu().numpy().astype(np.float64)
 
         prev_score = tracker.score
-        prev_y1_hits = tracker.y1_hits
+        prev_low_bar_hits = tracker.low_bar_hits
         prev_stage = tracker.stage
 
         out = tracker.update(boxes, keypoints)
@@ -409,7 +398,7 @@ def main() -> None:
                 depth,
                 tracker,
                 prev_score,
-                prev_y1_hits,
+                prev_low_bar_hits,
                 prev_stage,
             )
 
@@ -427,8 +416,8 @@ def main() -> None:
     print(f"Frames: {frame_count}")
     print(f"Final reps:        {tracker.reps}")
     print(f"Final score:       {tracker.score}")
-    print(f"Y0 hits (top):     {tracker.y0_hits}")
-    print(f"Y1 hits (low):     {tracker.y1_hits}")
+    print(f"Top bar hits:      {tracker.top_bar_hits}")
+    print(f"Low bar hits:      {tracker.low_bar_hits}")
     print(f"Posture good/bad:  {tracker.posture_good}/{tracker.posture_bad}")
     print(f"top_bar:           {tracker.top_bar}")
     print(f"low_bar:           {tracker.low_bar}")

@@ -26,6 +26,7 @@ export default function App() {
   const [bestByMode, setBestByMode] = useState({});
   const [sourceKind, setSourceKind] = useState("webcam");
   const uploadRetryRef = useRef(null);
+  const uploadRulesRef = useRef(null);
 
   useEffect(() => {
     if (view === "select" || view === "webcam-rules") {
@@ -101,7 +102,7 @@ export default function App() {
   function goMode() {
     setError("");
     setSummary({});
-    setPickerState("mode");
+    setPickerState(sourceKind === "video" ? "source" : "mode");
     setView("select");
   }
 
@@ -163,26 +164,42 @@ export default function App() {
 
   if (view === "webcam-rules") {
     return (
-      <WebcamRulePage
-        starting={starting}
-        error={error}
-        onBegin={async () => {
-          if (LAYOUT_PREVIEW) {
-            setSourceKind("webcam");
-            setView("webcam-session");
-            return;
-          }
-          const ok = await startWebcam();
-          if (ok) {
-            setView("webcam-session");
-          }
-        }}
-        onHome={goHome}
-        onBack={() => {
-          setError("");
-          setView("select");
-        }}
-      />
+      <>
+        <input
+          ref={uploadRulesRef}
+          className="hidden-file"
+          type="file"
+          accept="video/*"
+          onChange={(e) => {
+            startVideo(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        <WebcamRulePage
+          starting={starting}
+          error={error}
+          onBegin={async () => {
+            if (sourceKind === "video") {
+              uploadRulesRef.current?.click();
+              return;
+            }
+            if (LAYOUT_PREVIEW) {
+              setSourceKind("webcam");
+              setView("webcam-session");
+              return;
+            }
+            const ok = await startWebcam();
+            if (ok) {
+              setView("webcam-session");
+            }
+          }}
+          onHome={goHome}
+          onBack={() => {
+            setError("");
+            setView("select");
+          }}
+        />
+      </>
     );
   }
 
@@ -303,7 +320,11 @@ export default function App() {
                 setTimeLimit(seconds);
                 setView("webcam-rules");
               }}
-              onUploadFile={startVideo}
+              onUpload={() => {
+                setError("");
+                setSourceKind("video");
+                setView("webcam-rules");
+              }}
             />
             {error ? <p className="error landing-error">{error}</p> : null}
           </div>

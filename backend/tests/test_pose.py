@@ -12,7 +12,7 @@ from pose import (
     JUMP_PX,
     Pushup,
     UP_BAR_TOL,
-    closest_person,
+    largest_box_index,
     hit_depth_multiplier,
     is_down_pose,
     is_ready_pose,
@@ -155,7 +155,7 @@ def _left_stiff_arm_drop(kpts: np.ndarray) -> None:
     _set_joint(kpts, 15, 100, 480)  # ankle
 
 
-class TestClosestPerson:
+class TestLargestBoxIndex:
     def test_picks_largest_box(self):
         boxes = np.array(
             [
@@ -164,11 +164,11 @@ class TestClosestPerson:
             ],
             dtype=np.float64,
         )
-        assert closest_person(boxes) == 1
+        assert largest_box_index(boxes) == 1
 
     def test_no_boxes(self):
-        assert closest_person(None) is None
-        assert closest_person(np.zeros((0, 4))) is None
+        assert largest_box_index(None) is None
+        assert largest_box_index(np.zeros((0, 4))) is None
 
 
 class TestPickSide:
@@ -376,8 +376,8 @@ class TestPushup:
         assert tracker.stage == "up"
         assert tracker.reps == 1
         assert tracker.score == 400
-        assert tracker.y0_hits == 1
-        assert tracker.y1_hits == 1
+        assert tracker.top_bar_hits == 1
+        assert tracker.low_bar_hits == 1
         assert tracker.award_seq == 2
         assert tracker.last_multiplier == 2.0
         assert tracker.last_award_label == "full depth"
@@ -394,8 +394,8 @@ class TestPushup:
         _hold(tracker, boxes, kpts_down)
 
         assert tracker.score == 200
-        assert tracker.y1_hits == 1
-        assert tracker.y0_hits == 0
+        assert tracker.low_bar_hits == 1
+        assert tracker.top_bar_hits == 0
         assert tracker.reps == 0
         assert tracker.award_seq == 1
         assert tracker.last_multiplier == 2.0
@@ -412,7 +412,7 @@ class TestPushup:
         _hold(tracker, boxes, kpts_down)
 
         assert tracker.score == 100
-        assert tracker.y1_hits == 1
+        assert tracker.low_bar_hits == 1
         assert tracker.posture_bad == 1
         assert tracker.last_multiplier == 2.0
 
@@ -433,7 +433,7 @@ class TestPushup:
 
         assert tracker.score == 25
         assert tracker.reps == 0
-        assert tracker.y1_hits == 0
+        assert tracker.low_bar_hits == 0
         assert tracker.posture_good == 1
         assert tracker.last_multiplier == 1.0
         assert tracker.last_award_label == "miss"
@@ -476,8 +476,8 @@ class TestPushup:
         assert tracker.top_bar == 100.0
         assert tracker.low_bar == 300.0
         assert tracker.score == 0
-        assert tracker.y0_hits == 0
-        assert tracker.y1_hits == 0
+        assert tracker.top_bar_hits == 0
+        assert tracker.low_bar_hits == 0
         assert tracker.posture_good == 0
         assert tracker.posture_bad == 0
         assert tracker.award_seq == 0
@@ -633,8 +633,8 @@ class TestJitterScoring:
 
         assert tracker.reps == 1
         assert tracker.score > 0
-        assert tracker.y0_hits >= 1
-        assert tracker.y1_hits >= 1
+        assert tracker.top_bar_hits >= 1
+        assert tracker.low_bar_hits >= 1
 
     def test_sit_and_bounce_scores_nothing(self):
         """After plank calib, sitting shoulder bounce must not award score/reps."""

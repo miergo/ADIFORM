@@ -10,11 +10,11 @@ function countAwards(awards, label) {
 
 export default function ScoreCard({
   open = false,
-  y0Hits = 0,
-  y1Hits = 0,
-  good = 0,
-  bad = 0,
-  total = 0,
+  topBarHits = 0,
+  lowBarHits = 0,
+  postureGood = 0,
+  postureBad = 0,
+  score = 0,
   awards = [],
   prevBest = null,
   isNewBest = false,
@@ -40,28 +40,28 @@ export default function ScoreCard({
             <p className="score-block-label">REPS</p>
             <div className="score-row">
               <span>UP</span>
-              <span>{pad4(y0Hits)}</span>
+              <span>{pad4(topBarHits)}</span>
             </div>
             <div className="score-row">
               <span>DOWN</span>
-              <span>{pad4(y1Hits)}</span>
+              <span>{pad4(lowBarHits)}</span>
             </div>
           </div>
           <div className="score-block">
             <p className="score-block-label">POSTURE</p>
             <div className="score-row">
               <span>GOOD</span>
-              <span>{pad4(good)}</span>
+              <span>{pad4(postureGood)}</span>
             </div>
             <div className="score-row">
               <span>BAD</span>
-              <span>{pad4(bad)}</span>
+              <span>{pad4(postureBad)}</span>
             </div>
           </div>
           <div className="score-block">
             <div className="score-row">
               <span>TOTAL</span>
-              <span>{pad4(total)}</span>
+              <span>{pad4(score)}</span>
             </div>
             {showBest ? (
               <div className="score-row">

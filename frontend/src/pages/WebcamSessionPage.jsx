@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import SessionStage from "../components/SessionStage.jsx";
 import { playSfx } from "../sounds.js";
 
-const COUNTDOWN = [3, 2, 1, 4];
+const COUNTDOWN = [3, 2, 1, "go"];
 const ABSENT_END_SEC = 3;
 const PREVIEW_MODES = [
   ["calibrating", "CALIB"],
@@ -77,7 +77,6 @@ export default function WebcamSessionPage({
       setMode("timer");
     }
     if (
-      phase === "detecting" ||
       phase === "calibrating" ||
       phase === "idle" ||
       phase == null
