@@ -424,7 +424,7 @@ class TestPushup:
         _calibrate(tracker, boxes, kpts_up)
 
         kpts_partial = _blank_keypoints()
-        _left_partial_down_pose(kpts_partial, 190.0)  # 45% travel
+        _left_partial_down_pose(kpts_partial, 200.0)  # 50% travel
         _hold(tracker, boxes, kpts_partial)
 
         kpts_up2 = _blank_keypoints()
