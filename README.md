@@ -1,10 +1,12 @@
 # ADIFORM — Push-up workout game
 
+[![Tests](https://github.com/miergo/pose_estimation/actions/workflows/tests.yml/badge.svg)](https://github.com/miergo/pose_estimation/actions/workflows/tests.yml)
+
 Local game: webcam or uploaded video → YOLO pose → live feed + HUD → scorecard.
 
 Hold a plank to calibrate, then hit the depth bars. Score comes from depth and hip posture, not reps alone.
 
-Fronted UI: https://www.figma.com/design/Ri4OqGX5ytMmzLzd3memo2/ADIFORM-2099?node-id=0-1&t=XhU66cCW2b0biesK-1
+Frontend UI: https://www.figma.com/design/Ri4OqGX5ytMmzLzd3memo2/ADIFORM-2099?node-id=0-1&t=XhU66cCW2b0biesK-1
 
 https://github.com/user-attachments/assets/0013b178-1ba9-439d-a410-03054ead9ecf
 
@@ -22,6 +24,19 @@ https://github.com/user-attachments/assets/cd32ad41-a591-4dc4-9e52-ee24ef3ad7d9
 4. End the session for a short scorecard (hits, posture, total).
 
 ## How it works
+
+```mermaid
+flowchart LR
+  capture[Webcam_or_video] --> yolo[YOLO_track]
+  yolo --> pushup[Pushup_update]
+  pushup --> overlay[draw_overlay]
+  overlay --> jpeg[MJPEG_stream]
+  pushup --> status[GET_api_status]
+  jpeg --> hud[HUD]
+  status --> hud
+```
+
+One frame is captured, tracked, scored, then sent as MJPEG plus `/api/status` for the HUD.
 
 - **Backend:** FastAPI runs one in-memory session. A worker thread reads frames, runs Ultralytics YOLO pose, updates a push-up tracker, draws overlays, and serves MJPEG + JSON status.
 - **Frontend:** React (Vite) is a thin client: view state in `App.jsx`, polls `/api/status`, shows `/api/stream`.

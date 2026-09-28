@@ -1,0 +1,11 @@
+# Personal notes — keep local, not for GitHub
+docs/personal.md
+docs/interview.md
+__pycache__/
+*.pyc
+backend/.pytest_cache
+backend/uploads
+.cursor/
+.vscode/
+.conda/
+presentation.pptx
