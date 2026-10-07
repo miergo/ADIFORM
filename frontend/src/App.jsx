@@ -147,6 +147,13 @@ export default function App() {
     }
     setError("");
     setStarting(true);
+    if (LAYOUT_PREVIEW) {
+      setSourceKind("video");
+      setStreamKey(Date.now());
+      setView("webcam-session");
+      setStarting(false);
+      return;
+    }
     const body = new FormData();
     body.append("file", file);
     try {
