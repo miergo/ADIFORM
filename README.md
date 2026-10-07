@@ -13,11 +13,14 @@ Hold a plank to calibrate, then hit the depth bars. Score comes from depth and h
 Frontend UI: https://www.figma.com/design/Ri4OqGX5ytMmzLzd3memo2/ADIFORM-2099?node-id=0-1&t=XhU66cCW2b0biesK-1
 
 https://github.com/user-attachments/assets/0013b178-1ba9-439d-a410-03054ead9ecf
+I can not screen record and let the app's YOLO model run because it renders very slowly and heats up my PC (my hardware cant do both things at once :( )
 
 Backend Pose Tracker
 
 
 https://github.com/user-attachments/assets/cd32ad41-a591-4dc4-9e52-ee24ef3ad7d9
+
+
 
 
 ## What you do
