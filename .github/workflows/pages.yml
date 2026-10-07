@@ -27,7 +27,7 @@ jobs:
       - name: Install and build
         working-directory: frontend
         env:
-          VITE_BASE: /pose_estimation/
+          VITE_BASE: /ADIFORM/
           VITE_LAYOUT_PREVIEW: "true"
         run: |
           npm ci

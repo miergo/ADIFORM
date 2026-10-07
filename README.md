@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/miergo/pose_estimation/actions/workflows/tests.yml/badge.svg)](https://github.com/miergo/pose_estimation/actions/workflows/tests.yml)
 
-**Try the UI:** [https://miergo.github.io/pose_estimation/](https://miergo.github.io/pose_estimation/)
+**Try the UI:** [https://miergo.github.io/ADIFORM/](https://miergo.github.io/ADIFORM/)
 
 That page is the interface you can click through (start, webcam or upload, rules, session HUD, scorecard). Pose tracking stays on your machine — the live page has no backend.
 
@@ -107,7 +107,7 @@ frontend/
 
 ## Notes
 
-- The [live UI](https://miergo.github.io/pose_estimation/) is for clicking through the screens. Scoring and the camera feed need the local backend.
+- The [live UI](https://miergo.github.io/ADIFORM/) is for clicking through the screens. Scoring and the camera feed need the local backend.
 - This is a **local** demo, not a hosted multi-user product.
 - Pose model via [Ultralytics](https://github.com/ultralytics/ultralytics). Check their license for your use case.
 - Ignore `frontend/src/archive/`, `backend/preview_pose.py`, and notebook experiments — they are not the live app.
