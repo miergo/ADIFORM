@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { assetUrl } from "../assetUrl.js";
 import WebcamSessionEnded from "../components/WebcamSessionEnded.jsx";
 import { playSfx, stopSfx } from "../sounds.js";
 
@@ -22,7 +23,7 @@ export default function WebcamSessionEndedPage({
         <div className="landing-stage">
           <div className="landing-bg" aria-hidden="true">
             <div className="landing-bg-photo">
-              <img src="/img/0c709cc31e3edd0d195da718fbed8f3d.jpg" alt="" />
+              <img src={assetUrl("img/0c709cc31e3edd0d195da718fbed8f3d.jpg")} alt="" />
             </div>
             <div className="landing-bg-bar" />
           </div>

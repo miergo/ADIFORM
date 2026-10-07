@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 backend/.pytest_cache
 backend/uploads
+frontend/dist
 .cursor/
 .vscode/
 .conda/

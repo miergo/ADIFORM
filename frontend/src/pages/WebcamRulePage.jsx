@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { assetUrl } from "../assetUrl.js";
 import RulesComponent, { RULE_COUNT } from "../components/RulesComponent.jsx";
 
 export default function WebcamRulePage({ starting, error, onBegin, onHome, onBack }) {
@@ -10,7 +11,7 @@ export default function WebcamRulePage({ starting, error, onBegin, onHome, onBac
         <div className="landing-stage">
           <div className="landing-bg" aria-hidden="true">
             <div className="landing-bg-photo">
-              <img src="/img/0c709cc31e3edd0d195da718fbed8f3d.jpg" alt="" />
+              <img src={assetUrl("img/0c709cc31e3edd0d195da718fbed8f3d.jpg")} alt="" />
             </div>
             <div className="landing-bg-bar" />
           </div>

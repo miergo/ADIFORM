@@ -1,12 +1,14 @@
+import { assetUrl } from "./assetUrl.js";
+
 export const SOUNDS = {
-  counter: "/audio/counter.mp3",
-  multiplier: "/audio/multiplierSoundEffect.mp3",
-  score: "/audio/scorepage_sound.mp3",
-  background: "/audio/background_theme.mp3",
-  buttonHover: "/audio/buttonHoversound.mp3",
+  counter: assetUrl("audio/counter.mp3"),
+  multiplier: assetUrl("audio/multiplierSoundEffect.mp3"),
+  score: assetUrl("audio/scorepage_sound.mp3"),
+  background: assetUrl("audio/background_theme.mp3"),
+  buttonHover: assetUrl("audio/buttonHoversound.mp3"),
   sessionThemes: [
-    "/audio/WebCamUploadThemeMusic/ThemeSong1.mp3",
-    "/audio/WebCamUploadThemeMusic/ThemeSong2.mp3",
+    assetUrl("audio/WebCamUploadThemeMusic/ThemeSong1.mp3"),
+    assetUrl("audio/WebCamUploadThemeMusic/ThemeSong2.mp3"),
   ],
 };
 

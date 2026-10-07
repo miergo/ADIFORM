@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { assetUrl } from "./assetUrl.js";
 import LandingPageButtons from "./components/LandingPageButtons.jsx";
 import WebcamRulePage from "./pages/WebcamRulePage.jsx";
 import WebcamSessionPage from "./pages/WebcamSessionPage.jsx";
@@ -12,8 +13,8 @@ import {
   unmuteMusic,
 } from "./sounds.js";
 
-// Set true to browse screens without starting the backend / camera.
-const LAYOUT_PREVIEW = false;
+// GitHub Pages sets this so people can click through the screens with no backend.
+const LAYOUT_PREVIEW = import.meta.env.VITE_LAYOUT_PREVIEW === "true";
 
 export default function App() {
   const [view, setView] = useState("select");
@@ -278,7 +279,7 @@ export default function App() {
         <div className="landing-stage">
           <div className="landing-bg" aria-hidden="true">
             <div className="landing-bg-photo">
-              <img src="/img/0c709cc31e3edd0d195da718fbed8f3d.jpg" alt="" />
+              <img src={assetUrl("img/0c709cc31e3edd0d195da718fbed8f3d.jpg")} alt="" />
             </div>
             <div className="landing-bg-bar" />
           </div>
